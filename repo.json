@@ -1,15 +1,9 @@
 {
-  "id": "org.fssocrates.skyrepo",
   "name": "FSSkyRepo",
+  "packageName": "org.fssocrates.skyrepo",
   "description": "FOSS plugin repository hosted by FSSocrates for testing media streams",
   "manifestVersion": 1,
-  "pluginUrl": "https://raw.githubusercontent.com/FSSocrates/FSSkyRepo/main",
-  "plugins": [
-    {
-      "packageName": "org.fssocrates.fmovies",
-      "name": "FMovies",
-      "version": "1.0.0",
-      "file": "fmovies/plugin.js"
-    }
+  "pluginLists": [
+    "https://raw.githubusercontent.com/FSSocrates/FSSkyRepo/main/dist/plugins.json"
   ]
 }
