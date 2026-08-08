@@ -17,7 +17,7 @@
         {
           "key": "custom_domain_url",
           "title": "Active Link Input Override",
-          "description": "Provide the active target domain string. Protocol headers and tracking slashes are normalized automatically (e.g., fmovies.to/home).",
+          "description": "Provide the active target domain string (e.g., fmovies.to).",
           "type": "text",
           "defaultValue": ""
         }
