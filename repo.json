@@ -1,0 +1,26 @@
+{
+  "name": "FSSkyRepo",
+  "description": "FOSS plugin repository hosted by FSSocrates for testing media streams",
+  "manifestVersion": 1,
+  "pluginUrl": "https://githubusercontent.com",
+  "plugins": [
+    {
+      "id": "org.fmoviess",
+      "name": "FMovies",
+      "version": "1.0.1",
+      "description": "Scrapes dynamic media categories from your active FMovies target URL",
+      "icon": "https://fmoviess.org",
+      "file": "fmoviess.js",
+      "types": ["movies", "tv-series"],
+      "settings": [
+        {
+          "key": "custom_domain_url",
+          "title": "Active Link Input Override",
+          "description": "Paste the fully running active URL here. Note: Ensure you include the trailing slash (e.g., https://fmovies.to/home/).",
+          "type": "text",
+          "defaultValue": ""
+        }
+      ]
+    }
+  ]
+}
