@@ -1,19 +1,21 @@
-const DEFAULT_URL = "fmoviess.org/home";
+const URL = "fmoviess.org";
+const PCL = "https://";
+const DIR = "/home/";
 
 function getActiveUrl() {
     const runtimeOverride = app.getPreference("custom_domain_url");
-    const rawUrl = (runtimeOverride && runtimeOverride.trim() !== "") ? runtimeOverride.trim() : DEFAULT_URL;
-    return `https://${rawUrl}`;
+    const domain = (runtimeOverride && runtimeOverride.trim() !== "") ? runtimeOverride.trim() : URL;
+    return `${PCL}${domain}`;
 }
 
 async function getHome() {
-    const targetEndpoint = getActiveUrl(); 
-    const response = await http.get(targetEndpoint);
+    const rootUrl = getActiveUrl();
+    const response = await http.get(`${rootUrl}${DIR}`);
     const html = response.body;
     
     const items = html.select(".movie-layout").map(element => ({
         title: element.select("h2").text().trim(),
-        url: element.select("a").attr("href"),
+        url: `${rootUrl}${element.select("a").attr("href")}`,
         poster: element.select("img").attr("src"),
         quality: element.select(".HD, .CAM").text().trim() || "HD"
     }));
@@ -22,14 +24,14 @@ async function getHome() {
 }
 
 async function search(query) {
-    const targetEndpoint = getActiveUrl();
-    const searchUrl = `${targetEndpoint}/search/${encodeURIComponent(query)}`;
+    const rootUrl = getActiveUrl();
+    const searchUrl = `${rootUrl}${DIR}search/${encodeURIComponent(query)}`;
     const response = await http.get(searchUrl);
     const html = response.body;
 
     return html.select(".movie-layout").map(element => ({
         title: element.select("h2").text().trim(),
-        url: element.select("a").attr("href"),
+        url: `${rootUrl}${element.select("a").attr("href")}`,
         poster: element.select("img").attr("src")
     }));
 }
@@ -43,7 +45,7 @@ async function loadLinks(mediaPageUrl) {
     playerFrames.forEach(frame => {
         let frameSrc = frame.attr("src");
         if (frameSrc) {
-            if (frameSrc.startsWith("//")) frameSrc = "https:" + frameSrc;
+            if (frameSrc.startsWith("//")) frameSrc = `${PCL}${frameSrc.substring(2)}`;
             streamLinks.push({
                 name: "Primary Streaming Gateway",
                 url: frameSrc,
