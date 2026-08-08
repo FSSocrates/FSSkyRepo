@@ -2,19 +2,10 @@
   {
     "packageName": "org.fssocrates.fmovies",
     "name": "FMovies",
-    "version": 1,
+    "version": "1.0.0",
     "description": "FMovies scraper for SkyStream",
     "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
     "baseUrl": "https://fmoviess.org",
-    "authors": [
-      "FSSocrates"
-    ],
-    "languages": [
-      "en"
-    ],
-    "categories": [
-      "Movie"
-    ],
     "domains": [
       {
         "name": "fmoviess.org",
