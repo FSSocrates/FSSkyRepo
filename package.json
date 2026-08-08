@@ -1,0 +1,7 @@
+{
+  "name": "fsskyrepo",
+  "private": true,
+  "devDependencies": {
+    "skystream-extractors": "latest"
+  }
+}
