@@ -3,7 +3,7 @@ name: Deploy SkyStream Repo
 on:
   push:
     branches: [main]
-  workflow_dispatch:   # allows manual run from GitHub UI
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24   # was 20 — fixes the deprecation warning
 
       - name: Install SkyStream CLI
         run: npm install -g skystream-cli
