@@ -1,9 +1,10 @@
-const DEFAULT_URL = "fmoviess.org/home/";
+const DEFAULT_URL = "fmoviess.org/home";
 
 function getActiveUrl() {
     const runtimeOverride = app.getPreference("custom_domain_url");
-    const rawUrl = (runtimeOverride && runtimeOverride.trim() !== "") ? runtimeOverride.trim() : DEFAULT_URL;
-    return `https://${rawUrl}`;
+    let rawUrl = (runtimeOverride && runtimeOverride.trim() !== "") ? runtimeOverride.trim() : DEFAULT_URL;
+    
+    return `https://${rawUrl}/`;
 }
 
 async function getHome() {
