@@ -3,81 +3,54 @@ const PCL = "https:";
 const DIR = "/home/";
 
 function getActiveUrl() {
-    const runtimeOverride = app.getPreference("custom_domain_url");
-    let domain = (runtimeOverride && runtimeOverride.trim() !== "") ? runtimeOverride.trim() : URL;
-    
-    // Strips protocol (http:// or https://) and any trailing slashes in case user inputs them
-    return domain.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    const override = app.getPreference("custom_domain_url");
+    const domain = (override && override.trim() !== "") ? override.trim() : URL;
+    return `${PCL}//${domain}`;
+}
+
+function toUrl(path, domain) {
+    if (!path) return "";
+    if (path.startsWith("http")) return path;
+    if (path.startsWith("//")) return `${PCL}${path}`;
+    return `${domain}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
 async function getHome() {
-    const domain = `${PCL}//${getActiveUrl()}`;
+    const domain = getActiveUrl();
     const response = await http.get(`${domain}${DIR}`);
-    const html = response.body;
     
-    const items = html.select(".movie-layout").map(element => {
-        let href = element.select("a").attr("href") || "";
-        let src = element.select("img").attr("src") || "";
+    const items = response.body.select(".movie-layout").map(el => ({
+        title: el.select("h2").text().trim(),
+        url: toUrl(el.select("a").attr("href"), domain),
+        poster: toUrl(el.select("img").attr("src"), domain),
+        quality: el.select(".HD, .CAM").text().trim() || "HD"
+    }));
 
-        const url = href.startsWith("http") ? href : (href.startsWith("//") ? `${PCL}${href}` : `${domain}${href.startsWith("/") ? "" : "/"}${href}`);
-        const poster = src.startsWith("http") ? src : (src.startsWith("//") ? `${PCL}${src}` : `${domain}${src.startsWith("/") ? "" : "/"}${src}`);
-
-        return {
-            title: element.select("h2").text().trim(),
-            url: url,
-            poster: poster,
-            quality: element.select(".HD, .CAM").text().trim() || "HD"
-        };
-    });
-
-    return [{ title: "Latest Movies", layout: "grid", items: items }];
+    return [{ title: "Latest Movies", layout: "grid", items }];
 }
 
 async function search(query) {
-    const domain = `${PCL}//${getActiveUrl()}`;
-    const searchUrl = `${domain}${DIR}search/${encodeURIComponent(query)}`;
-    const response = await http.get(searchUrl);
-    const html = response.body;
+    const domain = getActiveUrl();
+    const response = await http.get(`${domain}${DIR}search/${encodeURIComponent(query)}`);
 
-    return html.select(".movie-layout").map(element => {
-        let href = element.select("a").attr("href") || "";
-        let src = element.select("img").attr("src") || "";
-
-        const url = href.startsWith("http") ? href : (href.startsWith("//") ? `${PCL}${href}` : `${domain}${href.startsWith("/") ? "" : "/"}${href}`);
-        const poster = src.startsWith("http") ? src : (src.startsWith("//") ? `${PCL}${src}` : `${domain}${src.startsWith("/") ? "" : "/"}${src}`);
-
-        return {
-            title: element.select("h2").text().trim(),
-            url: url,
-            poster: poster
-        };
-    });
+    return response.body.select(".movie-layout").map(el => ({
+        title: el.select("h2").text().trim(),
+        url: toUrl(el.select("a").attr("href"), domain),
+        poster: toUrl(el.select("img").attr("src"), domain)
+    }));
 }
 
 async function loadLinks(mediaPageUrl) {
-    const domain = `${PCL}//${getActiveUrl()}`;
+    const domain = getActiveUrl();
     const response = await http.get(mediaPageUrl);
-    const html = response.body;
-    let streamLinks = [];
 
-    const playerFrames = html.select("iframe, .player-iframe, #iframe-embed");
-    playerFrames.forEach(frame => {
-        let frameSrc = frame.attr("src");
-        if (frameSrc) {
-            let streamUrl = frameSrc.startsWith("http") 
-                ? frameSrc 
-                : (frameSrc.startsWith("//") 
-                    ? `${PCL}${frameSrc}` 
-                    : `${domain}${frameSrc.startsWith("/") ? "" : "/"}${frameSrc}`);
-
-            streamLinks.push({
-                name: "Primary Streaming Gateway",
-                url: streamUrl,
-                type: "embed",
-                isM3u8: false
-            });
-        }
-    });
-
-    return streamLinks;
+    return response.body.select("iframe, .player-iframe, #iframe-embed")
+        .map(frame => frame.attr("src"))
+        .filter(Boolean)
+        .map(src => ({
+            name: "Primary Streaming Gateway",
+            url: toUrl(src, domain),
+            type: "embed",
+            isM3u8: false
+        }));
 }
