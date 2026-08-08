@@ -10,7 +10,7 @@
       "version": "1.0.1",
       "description": "Scrapes dynamic media categories from your active FMovies target URL",
       "icon": "https://fmoviess.org",
-      "file": "fmoviess.js",
+      "file": "fmovies.js",
       "types": ["movies", "tv-series"],
       "settings": [
         {
