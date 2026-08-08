@@ -1,0 +1,12 @@
+{
+  "packageName": "org.fssocrates.fmovies",
+  "name": "FMovies",
+  "version": "1.0.0",
+  "description": "FMovies scraper for SkyStream",
+  "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
+  "baseUrl": "https://fmoviess.org",
+  "domains": [
+    { "name": "fmoviess.org", "url": "https://fmoviess.org" },
+    { "name": "fmovies.to", "url": "https://fmovies.to" }
+  ]
+}
