@@ -4,7 +4,10 @@ const DIR = "/home/";
 
 function getActiveUrl() {
     const runtimeOverride = app.getPreference("custom_domain_url");
-    return (runtimeOverride && runtimeOverride.trim() !== "") ? runtimeOverride.trim() : URL;
+    let domain = (runtimeOverride && runtimeOverride.trim() !== "") ? runtimeOverride.trim() : URL;
+    
+    // Strips protocol (http:// or https://) and any trailing slashes in case user inputs them
+    return domain.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
 }
 
 async function getHome() {
