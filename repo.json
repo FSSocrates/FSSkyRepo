@@ -16,7 +16,7 @@
         {
           "key": "custom_domain_url",
           "title": "Active Link Input Override",
-          "description": "Paste the fully running active URL here. Note: Ensure you include the trailing slash (e.g., https://fmovies.to/home/).",
+          "description": "Paste the fully running active URL here. Note: Ensure you include the trailing slash (e.g., fmovies.to/home/).",
           "type": "text",
           "defaultValue": ""
         }
