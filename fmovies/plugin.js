@@ -3,15 +3,19 @@
 
   const IMG_CDN = "https://img.cdno.my.id";
   const PLAYER = "https://netoda.tech";
+  const UA =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
   const HEADERS = {
-    "User-Agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "User-Agent": UA,
     Accept: "application/json, text/html, */*",
     "Accept-Language": "en-US,en;q=0.9",
   };
 
   function base() {
-    return (manifest.baseUrl || "https://fmoviess.org").replace(/\/$/, "");
+    return (
+      (typeof manifest !== "undefined" && manifest.baseUrl) ||
+      "https://fmoviess.org"
+    ).replace(/\/$/, "");
   }
 
   function poster(slug, size) {
@@ -35,8 +39,10 @@
     try {
       return JSON.parse(url);
     } catch (e) {
-      // fallback: treat as slug
-      return { slug: String(url).replace(/^.*\//, "").replace(/\/$/, ""), type: "movie" };
+      return {
+        slug: String(url).replace(/^.*\//, "").replace(/\/$/, ""),
+        type: "movie",
+      };
     }
   }
 
@@ -58,17 +64,33 @@
     });
   }
 
+  // Works in both app (fetch) and CLI (http_get)
   async function httpJson(url) {
-    const res = await http.get(url, { headers: HEADERS });
-    if (!res || !res.body) throw new Error("Empty response");
-    const body = typeof res.body === "string" ? res.body : String(res.body);
-    return JSON.parse(body);
+    if (typeof fetch === "function") {
+      const r = await fetch(url, { headers: HEADERS });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
+    }
+    if (typeof http_get === "function") {
+      const res = await http_get(url, HEADERS);
+      const body = res && res.body !== undefined ? res.body : res;
+      return typeof body === "string" ? JSON.parse(body) : body;
+    }
+    throw new Error("No HTTP client available in runtime");
   }
 
-  async function httpHtml(url) {
-    const res = await http.get(url, { headers: HEADERS });
-    if (!res || !res.body) throw new Error("Empty response");
-    return res.body;
+  async function httpText(url) {
+    if (typeof fetch === "function") {
+      const r = await fetch(url, { headers: HEADERS });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.text();
+    }
+    if (typeof http_get === "function") {
+      const res = await http_get(url, HEADERS);
+      const body = res && res.body !== undefined ? res.body : res;
+      return typeof body === "string" ? body : String(body || "");
+    }
+    throw new Error("No HTTP client available in runtime");
   }
 
   // ---------- getHome ----------
@@ -113,24 +135,18 @@
       const q = encodeURIComponent(String(query || "").trim());
       if (!q) return cb({ success: true, data: [] });
 
-      const url =
-        base() +
-        "/searching?q=" +
-        q +
-        "&limit=40&offset=0";
-
       let rows = [];
       try {
-        const json = await httpJson(url);
+        const json = await httpJson(
+          base() + "/searching?q=" + q + "&limit=40&offset=0"
+        );
         rows = (json && json.data) || [];
       } catch (e) {
-        // fallback: filter index.json client-side
         const all = await httpJson(base() + "/index.json");
         const needle = String(query).toLowerCase();
         rows = (Array.isArray(all) ? all : [])
           .filter(function (r) {
-            const t = (r.t || r.title || "").toLowerCase();
-            return t.indexOf(needle) !== -1;
+            return (r.t || r.title || "").toLowerCase().indexOf(needle) !== -1;
           })
           .slice(0, 40);
       }
@@ -140,7 +156,6 @@
         const item = toItem(rows[i]);
         if (item) out.push(item);
       }
-
       cb({ success: true, data: out });
     } catch (e) {
       cb({
@@ -151,7 +166,7 @@
     }
   }
 
-  // ---------- load (details + episodes) ----------
+  // ---------- load ----------
   async function load(url, cb) {
     try {
       const info = parseUrl(url);
@@ -164,11 +179,8 @@
         });
       }
 
-      const pageUrl = base() + "/film/" + slug + "/";
-      const html = await httpHtml(pageUrl);
-      const htmlStr = typeof html === "string" ? html : (html && html.toString ? html.toString() : "");
+      const htmlStr = await httpText(base() + "/film/" + slug + "/");
 
-      // title
       let title = slug.replace(/-\d+$/, "").replace(/-/g, " ");
       const titleMatch = htmlStr.match(/<title[^>]*>([^<]+)/i);
       if (titleMatch) {
@@ -179,7 +191,6 @@
           .trim();
       }
 
-      // data-mid
       let mid = info.mid;
       const midMatch = htmlStr.match(/data-mid\s*=\s*["']?(\d+)/i);
       if (midMatch) mid = midMatch[1];
@@ -188,41 +199,36 @@
         if (m) mid = m[1];
       }
 
-      // description
       let description = "";
       const descMatch = htmlStr.match(
         /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)/i
       );
       if (descMatch) description = descMatch[1];
 
-      // year
       let year;
       const yearMatch = htmlStr.match(/\b(19|20)\d{2}\b/);
       if (yearMatch) year = Number(yearMatch[0]);
 
-      // servers
       const servers = [];
       const srvRe = /id=["']srv-(\d+)["'][^>]*>([^<]*)</gi;
       let sm;
       while ((sm = srvRe.exec(htmlStr)) !== null) {
-        servers.push({ id: sm[1], name: (sm[2] || "Server " + sm[1]).trim() });
+        servers.push({
+          id: sm[1],
+          name: (sm[2] || "Server " + sm[1]).trim(),
+        });
       }
-      if (servers.length === 0) {
-        servers.push({ id: "1", name: "Server 1" });
-      }
+      if (servers.length === 0) servers.push({ id: "1", name: "Server 1" });
 
-      // episodes
       const eps = [];
       const epRe = /id=["']ep-(\d+)["'][^>]*(?:title=["']([^"']*)["'])?/gi;
       let em;
       while ((em = epRe.exec(htmlStr)) !== null) {
-        eps.push({
-          id: em[1],
-          title: em[2] || "Episode " + em[1],
-        });
+        eps.push({ id: em[1], title: em[2] || "Episode " + em[1] });
       }
 
-      const isSeries = eps.length > 1 || /season/i.test(title) || info.type === "series";
+      const isSeries =
+        eps.length > 1 || /season/i.test(title) || info.type === "series";
 
       let episodes = [];
       if (isSeries && eps.length > 0) {
@@ -241,7 +247,6 @@
           });
         });
       } else {
-        // movie: one "episode" that carries server list
         episodes = [
           new MultimediaItem({
             title: title,
@@ -258,18 +263,19 @@
         ];
       }
 
-      const item = new MultimediaItem({
-        title: title,
-        url: url,
-        posterUrl: poster(slug),
-        bannerUrl: cover(slug),
-        type: isSeries ? "series" : "movie",
-        year: year,
-        description: description,
-        episodes: episodes,
+      cb({
+        success: true,
+        data: new MultimediaItem({
+          title: title,
+          url: url,
+          posterUrl: poster(slug),
+          bannerUrl: cover(slug),
+          type: isSeries ? "series" : "movie",
+          year: year,
+          description: description,
+          episodes: episodes,
+        }),
       });
-
-      cb({ success: true, data: item });
     } catch (e) {
       cb({
         success: false,
@@ -279,12 +285,26 @@
     }
   }
 
-  // ---------- AES-GCM token (same logic as the site) ----------
+  // ---------- stream token ----------
   async function buildToken(mid, ep, server, country) {
-    const plain = mid + "+" + ep + "+" + server + "+" + country + "+" + Math.floor(Date.now() / 1000);
+    if (typeof crypto === "undefined" || !crypto.subtle) return "";
+
+    const plain =
+      mid +
+      "+" +
+      ep +
+      "+" +
+      server +
+      "+" +
+      country +
+      "+" +
+      Math.floor(Date.now() / 1000);
     const enc = new TextEncoder();
 
-    const keyMaterial = await crypto.subtle.digest("SHA-256", enc.encode(country));
+    const keyMaterial = await crypto.subtle.digest(
+      "SHA-256",
+      enc.encode(country)
+    );
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const key = await crypto.subtle.importKey(
       "raw",
@@ -299,7 +319,6 @@
       enc.encode(plain)
     );
 
-    // site does: btoa( iv_as_string + ciphertext_as_string )
     const ivStr = Array.from(iv)
       .map(function (b) {
         return String.fromCharCode(b);
@@ -311,17 +330,13 @@
       })
       .join("");
 
-    // base64url-ish encode (site uses a custom encodeURI helper; plain btoa is close enough for many players)
     const raw = btoa(ivStr + ctStr);
     return raw.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
   async function getCountry() {
     try {
-      const res = await http.get("https://fmoviess.org/cdn-cgi/trace", {
-        headers: HEADERS,
-      });
-      const text = typeof res.body === "string" ? res.body : String(res.body || "");
+      const text = await httpText(base() + "/cdn-cgi/trace");
       const m = text.match(/loc=([A-Z]{2})/);
       return m ? m[1] : "US";
     } catch (e) {
@@ -351,11 +366,7 @@
       for (let i = 0; i < servers.length; i++) {
         const srv = servers[i];
         try {
-          let token = "";
-          if (typeof crypto !== "undefined" && crypto.subtle) {
-            token = await buildToken(mid, ep, srv.id, country);
-          }
-
+          const token = await buildToken(mid, ep, srv.id, country);
           const watchUrl =
             PLAYER +
             "/watch/?v" +
@@ -370,24 +381,13 @@
               name: srv.name || "Server " + srv.id,
               headers: {
                 Referer: base() + "/",
-                "User-Agent": HEADERS["User-Agent"],
+                "User-Agent": UA,
               },
             })
           );
         } catch (e) {
-          // skip failed server
+          /* skip server */
         }
-      }
-
-      // also try returning the film page itself as a last resort (some extractors may pick iframes)
-      if (streams.length === 0 && info.slug) {
-        streams.push(
-          new StreamResult({
-            url: base() + "/film/" + info.slug + "/",
-            quality: "Unknown",
-            name: "Page",
-          })
-        );
       }
 
       cb({ success: true, data: streams });
