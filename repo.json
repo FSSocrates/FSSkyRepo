@@ -4,27 +4,12 @@
   "description": "FOSS plugin repository hosted by FSSocrates for testing media streams",
   "manifestVersion": 1,
   "pluginUrl": "https://raw.githubusercontent.com/FSSocrates/FSSkyRepo/main",
-  "repos": [
+  "plugins": [
     {
-      "packageName": "org.fmovies",
+      "packageName": "org.fssocrates.fmovies",
       "name": "FMovies",
-      "version": "1.0.1",
-      "description": "Scrapes dynamic media categories from your active FMovies target URL",
-      "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
-      "file": "plugins/fmovies.js",
-      "types": [
-        "movies",
-        "tv-series"
-      ],
-      "settings": [
-        {
-          "key": "custom_domain_url",
-          "title": "Active Link Input Override",
-          "description": "Provide the active target domain string (e.g., fmovies.to).",
-          "type": "text",
-          "defaultValue": ""
-        }
-      ]
+      "version": "1.0.0",
+      "file": "fmovies/plugin.js"
     }
   ]
 }
