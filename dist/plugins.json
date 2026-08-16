@@ -2,8 +2,8 @@
   {
     "packageName": "io.fsskyrepo.fmovies",
     "name": "FMovies",
-    "version": 3,
-    "description": "FMovies (fmoviess.org) — browse & search; streams WIP",
+    "version": 4,
+    "description": "FMovies — browse, search, and Netoda HLS streams",
     "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
     "baseUrl": "https://fmoviess.org",
     "authors": [
