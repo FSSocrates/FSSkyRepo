@@ -605,40 +605,13 @@
         }
       }
 
-      // 3) Soft fallback: netoda watch page (may not play in-app, useful for debugging)
-      if (streams.length === 0) {
-        for (let i = 0; i < Math.min(servers.length, 3); i++) {
-          const srv = servers[i];
-          const sid = String(srv.id || srv);
-          try {
-            const token = await buildWatchToken(mid, ep, sid, country);
-            const watchUrl =
-              PLAYER +
-              "/watch/?v" +
-              sid +
-              ep +
-              (token ? "#" + token : "");
-            pushStream(
-              new StreamResult({
-                url: watchUrl,
-                quality: "HD",
-                name: (srv.name || "Server " + sid) + " (Player)",
-                headers: {
-                  Referer: base() + "/",
-                  "User-Agent": UA,
-                },
-              })
-            );
-          } catch (e) {}
-        }
-      }
-
+      // Do NOT return netoda /watch/ HTML pages — they hang forever in the player.
       if (streams.length === 0) {
         return cb({
           success: false,
           errorCode: "NO_STREAMS",
           message:
-            "No playable streams found. Direct HLS token may need update; try another title/server.",
+            "No direct HLS yet (Netoda /get/ token mismatch). Search/browse works; playback needs a token fix.",
         });
       }
 
