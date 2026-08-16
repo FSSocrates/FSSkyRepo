@@ -1,234 +1,381 @@
 (function () {
   "use strict";
 
+  // ---- Pure JS crypto (no WebCrypto required) ----
+  var SBOX = new Uint8Array([
+    0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+    0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+    0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+    0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+    0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+    0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+    0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+    0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+    0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+    0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+    0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+    0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+    0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+    0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+    0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+    0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16
+  ]);
+  function rotr(n, x) { return (x >>> n) | (x << (32 - n)); }
+  function sha256(bytes) {
+    if (typeof bytes === "string") bytes = strBytes(bytes);
+    var K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+    var h0=0x6a09e667,h1=0xbb67ae85,h2=0x3c6ef372,h3=0xa54ff53a,h4=0x510e527f,h5=0x9b05688c,h6=0x1f83d9ab,h7=0x5be0cd19;
+    var l = bytes.length;
+    var withPad = new Uint8Array(((l + 9 + 63) & ~63));
+    withPad.set(bytes);
+    withPad[l] = 0x80;
+    var dv = new DataView(withPad.buffer);
+    dv.setUint32(withPad.length - 4, (l * 8) >>> 0, false);
+    for (var i = 0; i < withPad.length; i += 64) {
+      var w = new Uint32Array(64);
+      var ddv = new DataView(withPad.buffer, i, 64);
+      for (var j = 0; j < 16; j++) w[j] = ddv.getUint32(j * 4, false);
+      for (var j = 16; j < 64; j++) {
+        var s0 = rotr(7, w[j-15]) ^ rotr(18, w[j-15]) ^ (w[j-15] >>> 3);
+        var s1 = rotr(17, w[j-2]) ^ rotr(19, w[j-2]) ^ (w[j-2] >>> 10);
+        w[j] = (w[j-16] + s0 + w[j-7] + s1) >>> 0;
+      }
+      var a=h0,b=h1,c=h2,d=h3,e=h4,f=h5,g=h6,h=h7;
+      for (var j = 0; j < 64; j++) {
+        var S1 = rotr(6, e) ^ rotr(11, e) ^ rotr(25, e);
+        var ch = (e & f) ^ (~e & g);
+        var t1 = (h + S1 + ch + K[j] + w[j]) >>> 0;
+        var S0 = rotr(2, a) ^ rotr(13, a) ^ rotr(22, a);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + maj) >>> 0;
+        h=g;g=f;f=e;e=(d+t1)>>>0;d=c;c=b;b=a;a=(t1+t2)>>>0;
+      }
+      h0=(h0+a)>>>0;h1=(h1+b)>>>0;h2=(h2+c)>>>0;h3=(h3+d)>>>0;
+      h4=(h4+e)>>>0;h5=(h5+f)>>>0;h6=(h6+g)>>>0;h7=(h7+h)>>>0;
+    }
+    var out = new Uint8Array(32);
+    var ov = new DataView(out.buffer);
+    ov.setUint32(0,h0,false);ov.setUint32(4,h1,false);ov.setUint32(8,h2,false);ov.setUint32(12,h3,false);
+    ov.setUint32(16,h4,false);ov.setUint32(20,h5,false);ov.setUint32(24,h6,false);ov.setUint32(28,h7,false);
+    return out;
+  }
+  function hmacSha256(key, data) {
+    if (typeof key === "string") key = strBytes(key);
+    if (typeof data === "string") data = strBytes(data);
+    if (key.length > 64) key = sha256(key);
+    var k = new Uint8Array(64);
+    k.set(key);
+    var ipad = new Uint8Array(64);
+    var opad = new Uint8Array(64);
+    for (var i = 0; i < 64; i++) { ipad[i] = k[i] ^ 0x36; opad[i] = k[i] ^ 0x5c; }
+    var inner = new Uint8Array(64 + data.length);
+    inner.set(ipad);
+    inner.set(data, 64);
+    var outer = new Uint8Array(96);
+    outer.set(opad);
+    outer.set(sha256(inner), 64);
+    return sha256(outer);
+  }
+  function pbkdf2(password, salt, iterations, dkLen) {
+    if (typeof password === "string") password = strBytes(password);
+    var blocks = Math.ceil(dkLen / 32);
+    var out = new Uint8Array(blocks * 32);
+    for (var block = 1; block <= blocks; block++) {
+      var blockBytes = new Uint8Array(4);
+      new DataView(blockBytes.buffer).setUint32(0, block, false);
+      var saltBlock = new Uint8Array(salt.length + 4);
+      saltBlock.set(salt);
+      saltBlock.set(blockBytes, salt.length);
+      var u = hmacSha256(password, saltBlock);
+      var t = new Uint8Array(u);
+      for (var i = 1; i < iterations; i++) {
+        u = hmacSha256(password, u);
+        for (var j = 0; j < 32; j++) t[j] ^= u[j];
+      }
+      out.set(t, (block - 1) * 32);
+    }
+    return out.slice(0, dkLen);
+  }
+  function aesKeyExpand(key) {
+    var Nk = 8, Nr = 14;
+    var w = new Uint32Array(4 * (Nr + 1));
+    for (var i = 0; i < Nk; i++) w[i] = (key[i*4]<<24)|(key[i*4+1]<<16)|(key[i*4+2]<<8)|key[i*4+3];
+    var rcon = [0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36];
+    for (var i = Nk; i < 4 * (Nr + 1); i++) {
+      var t = w[i - 1];
+      if (i % Nk === 0) {
+        t = ((t << 8) | (t >>> 24)) >>> 0;
+        t = ((SBOX[(t>>>24)&0xff]<<24)|(SBOX[(t>>>16)&0xff]<<16)|(SBOX[(t>>>8)&0xff]<<8)|SBOX[t&0xff]) >>> 0;
+        t ^= (rcon[i / Nk - 1] << 24) >>> 0;
+      } else if (i % Nk === 4) {
+        t = ((SBOX[(t>>>24)&0xff]<<24)|(SBOX[(t>>>16)&0xff]<<16)|(SBOX[(t>>>8)&0xff]<<8)|SBOX[t&0xff]) >>> 0;
+      }
+      w[i] = (w[i - Nk] ^ t) >>> 0;
+    }
+    return w;
+  }
+  function xtime(x) { return ((x << 1) ^ (((x >>> 7) & 1) * 0x1b)) & 0xff; }
+  function mixCol(s) {
+    var a = (s >>> 24) & 0xff, b = (s >>> 16) & 0xff, c = (s >>> 8) & 0xff, d = s & 0xff;
+    return ((xtime(a)^xtime(b)^b^c^d)<<24|(a^xtime(b)^xtime(c)^c^d)<<16|(a^b^xtime(c)^xtime(d)^d)<<8|(xtime(a)^a^b^c^xtime(d))) >>> 0;
+  }
+  function aesEncryptBlock(w, block) {
+    var Nr = 14;
+    var s0 = ((block[0]<<24|block[1]<<16|block[2]<<8|block[3]) ^ w[0]) >>> 0;
+    var s1 = ((block[4]<<24|block[5]<<16|block[6]<<8|block[7]) ^ w[1]) >>> 0;
+    var s2 = ((block[8]<<24|block[9]<<16|block[10]<<8|block[11]) ^ w[2]) >>> 0;
+    var s3 = ((block[12]<<24|block[13]<<16|block[14]<<8|block[15]) ^ w[3]) >>> 0;
+    for (var r = 1; r < Nr; r++) {
+      var t0 = ((SBOX[(s0>>>24)&0xff]<<24)|(SBOX[(s1>>>16)&0xff]<<16)|(SBOX[(s2>>>8)&0xff]<<8)|SBOX[s3&0xff]) >>> 0;
+      var t1 = ((SBOX[(s1>>>24)&0xff]<<24)|(SBOX[(s2>>>16)&0xff]<<16)|(SBOX[(s3>>>8)&0xff]<<8)|SBOX[s0&0xff]) >>> 0;
+      var t2 = ((SBOX[(s2>>>24)&0xff]<<24)|(SBOX[(s3>>>16)&0xff]<<16)|(SBOX[(s0>>>8)&0xff]<<8)|SBOX[s1&0xff]) >>> 0;
+      var t3 = ((SBOX[(s3>>>24)&0xff]<<24)|(SBOX[(s0>>>16)&0xff]<<16)|(SBOX[(s1>>>8)&0xff]<<8)|SBOX[s2&0xff]) >>> 0;
+      s0 = (mixCol(t0) ^ w[r*4]) >>> 0;
+      s1 = (mixCol(t1) ^ w[r*4+1]) >>> 0;
+      s2 = (mixCol(t2) ^ w[r*4+2]) >>> 0;
+      s3 = (mixCol(t3) ^ w[r*4+3]) >>> 0;
+    }
+    var t0 = ((SBOX[(s0>>>24)&0xff]<<24)|(SBOX[(s1>>>16)&0xff]<<16)|(SBOX[(s2>>>8)&0xff]<<8)|SBOX[s3&0xff]) >>> 0;
+    var t1 = ((SBOX[(s1>>>24)&0xff]<<24)|(SBOX[(s2>>>16)&0xff]<<16)|(SBOX[(s3>>>8)&0xff]<<8)|SBOX[s0&0xff]) >>> 0;
+    var t2 = ((SBOX[(s2>>>24)&0xff]<<24)|(SBOX[(s3>>>16)&0xff]<<16)|(SBOX[(s0>>>8)&0xff]<<8)|SBOX[s1&0xff]) >>> 0;
+    var t3 = ((SBOX[(s3>>>24)&0xff]<<24)|(SBOX[(s0>>>16)&0xff]<<16)|(SBOX[(s1>>>8)&0xff]<<8)|SBOX[s2&0xff]) >>> 0;
+    s0 = (t0 ^ w[Nr*4]) >>> 0; s1 = (t1 ^ w[Nr*4+1]) >>> 0;
+    s2 = (t2 ^ w[Nr*4+2]) >>> 0; s3 = (t3 ^ w[Nr*4+3]) >>> 0;
+    var out = new Uint8Array(16);
+    var ss = [s0, s1, s2, s3];
+    for (var i = 0; i < 4; i++) {
+      out[i*4] = (ss[i] >>> 24) & 0xff;
+      out[i*4+1] = (ss[i] >>> 16) & 0xff;
+      out[i*4+2] = (ss[i] >>> 8) & 0xff;
+      out[i*4+3] = ss[i] & 0xff;
+    }
+    return out;
+  }
+  function gcmMul(x, y) {
+    var z = new Uint8Array(16);
+    var v = new Uint8Array(y);
+    for (var i = 0; i < 128; i++) {
+      if ((x[i >>> 3] >>> (7 - (i & 7))) & 1) {
+        for (var j = 0; j < 16; j++) z[j] ^= v[j];
+      }
+      var lsb = v[15] & 1;
+      for (var j = 15; j > 0; j--) v[j] = ((v[j] >>> 1) | ((v[j - 1] & 1) << 7)) & 0xff;
+      v[0] >>>= 1;
+      if (lsb) v[0] ^= 0xe1;
+    }
+    return z;
+  }
+  function ghash(H, data) {
+    var y = new Uint8Array(16);
+    for (var i = 0; i < data.length; i += 16) {
+      var block = new Uint8Array(16);
+      var n = Math.min(16, data.length - i);
+      for (var j = 0; j < n; j++) block[j] = data[i + j];
+      for (var j = 0; j < 16; j++) block[j] ^= y[j];
+      y = gcmMul(block, H);
+    }
+    return y;
+  }
+  function aesGcmEncrypt(key, iv, plaintext) {
+    var w = aesKeyExpand(key);
+    var H = aesEncryptBlock(w, new Uint8Array(16));
+    var j0 = new Uint8Array(16);
+    j0.set(iv);
+    j0[15] = 1;
+    var ct = new Uint8Array(plaintext.length);
+    var counter = new Uint8Array(j0);
+    for (var i = 0; i < plaintext.length; i += 16) {
+      for (var k = 15; k >= 12; k--) { counter[k] = (counter[k] + 1) & 0xff; if (counter[k]) break; }
+      var stream = aesEncryptBlock(w, counter);
+      var n = Math.min(16, plaintext.length - i);
+      for (var j = 0; j < n; j++) ct[i + j] = plaintext[i + j] ^ stream[j];
+    }
+    var padLen = (16 - (ct.length % 16)) % 16;
+    var lenBlock = new Uint8Array(16);
+    var bitLen = ct.length * 8;
+    lenBlock[12] = (bitLen >>> 24) & 0xff;
+    lenBlock[13] = (bitLen >>> 16) & 0xff;
+    lenBlock[14] = (bitLen >>> 8) & 0xff;
+    lenBlock[15] = bitLen & 0xff;
+    var ghashIn = new Uint8Array(ct.length + padLen + 16);
+    ghashIn.set(ct);
+    ghashIn.set(lenBlock, ct.length + padLen);
+    var S = ghash(H, ghashIn);
+    var tagMask = aesEncryptBlock(w, j0);
+    var tag = new Uint8Array(16);
+    for (var i = 0; i < 16; i++) tag[i] = S[i] ^ tagMask[i];
+    var out = new Uint8Array(ct.length + 16);
+    out.set(ct);
+    out.set(tag, ct.length);
+    return out;
+  }
+  function aesGcmDecrypt(key, iv, data) {
+    var ct = data.subarray(0, data.length - 16);
+    var tag = data.subarray(data.length - 16);
+    var w = aesKeyExpand(key);
+    var H = aesEncryptBlock(w, new Uint8Array(16));
+    var j0 = new Uint8Array(16);
+    j0.set(iv);
+    j0[15] = 1;
+    var padLen = (16 - (ct.length % 16)) % 16;
+    var lenBlock = new Uint8Array(16);
+    var bitLen = ct.length * 8;
+    lenBlock[12] = (bitLen >>> 24) & 0xff;
+    lenBlock[13] = (bitLen >>> 16) & 0xff;
+    lenBlock[14] = (bitLen >>> 8) & 0xff;
+    lenBlock[15] = bitLen & 0xff;
+    var ghashIn = new Uint8Array(ct.length + padLen + 16);
+    ghashIn.set(ct);
+    ghashIn.set(lenBlock, ct.length + padLen);
+    var S = ghash(H, ghashIn);
+    var tagMask = aesEncryptBlock(w, j0);
+    for (var i = 0; i < 16; i++) {
+      if ((S[i] ^ tagMask[i]) !== tag[i]) throw new Error("GCM auth failed");
+    }
+    var pt = new Uint8Array(ct.length);
+    var counter = new Uint8Array(j0);
+    for (var i = 0; i < ct.length; i += 16) {
+      for (var k = 15; k >= 12; k--) { counter[k] = (counter[k] + 1) & 0xff; if (counter[k]) break; }
+      var stream = aesEncryptBlock(w, counter);
+      var n = Math.min(16, ct.length - i);
+      for (var j = 0; j < n; j++) pt[i + j] = ct[i + j] ^ stream[j];
+    }
+    return pt;
+  }
+  function strBytes(s) {
+    if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(s);
+    var out = new Uint8Array(s.length);
+    for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+    return out;
+  }
+  function strFromBytes(b) {
+    if (typeof TextDecoder !== "undefined") return new TextDecoder().decode(b);
+    var s = "";
+    for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return s;
+  }
+
+
   const IMG_CDN = "https://img.cdno.my.id";
   const PLAYER = "https://netoda.tech";
   const VIDARA = "https://vidara.to";
-  const UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-  const HEADERS = {
-    "User-Agent": UA,
-    Accept: "application/json, text/html, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-  };
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+  const HEADERS = { "User-Agent": UA, Accept: "application/json, text/html, */*", "Accept-Language": "en-US,en;q=0.9" };
 
   function base() {
-    return (
-      (typeof manifest !== "undefined" && manifest.baseUrl) ||
-      "https://fmoviess.org"
-    ).replace(/\/$/, "");
+    return ((typeof manifest !== "undefined" && manifest.baseUrl) || "https://fmoviess.org").replace(/\/$/, "");
   }
-
   function poster(slug, size) {
     size = size || "w_200/h_300";
     return IMG_CDN + "/thumb/" + size + "/" + slug + ".jpg";
   }
-
   function cover(slug) {
     return IMG_CDN + "/cover/w_1280/h_720/" + slug + ".jpg";
   }
-
   function itemUrl(slug, mid, type, extra) {
-    const o = {
-      slug: slug,
-      mid: mid || null,
-      type: type || "movie",
-    };
-    if (extra) {
-      for (const k in extra) o[k] = extra[k];
-    }
+    var o = { slug: slug, mid: mid || null, type: type || "movie" };
+    if (extra) for (var k in extra) o[k] = extra[k];
     return JSON.stringify(o);
   }
-
   function parseUrl(url) {
-    try {
-      return JSON.parse(url);
-    } catch (e) {
-      return {
-        slug: String(url).replace(/^.*\//, "").replace(/\/$/, ""),
-        type: "movie",
-      };
+    try { return JSON.parse(url); } catch (e) {
+      return { slug: String(url).replace(/^.*\//, "").replace(/\/$/, ""), type: "movie" };
     }
   }
-
   function toItem(row) {
-    const slug = row.s || row.link || "";
+    var slug = row.s || row.link || "";
     if (!slug) return null;
-    const title = row.t || row.title || slug;
-    const isSeries = row.d === "s" || /season/i.test(title);
-    const midMatch = String(slug).match(/-(\d+)$/);
-    const mid = midMatch ? midMatch[1] : null;
-
+    var title = row.t || row.title || slug;
+    var isSeries = row.d === "s" || /season/i.test(title);
+    var midMatch = String(slug).match(/-(\d+)$/);
+    var mid = midMatch ? midMatch[1] : null;
     return new MultimediaItem({
       title: title,
-      url: itemUrl(slug, mid, isSeries ? "series" : "movie", {
-        title: title,
-        year: row.y ? Number(row.y) : undefined,
-      }),
+      url: itemUrl(slug, mid, isSeries ? "series" : "movie", { title: title, year: row.y ? Number(row.y) : undefined }),
       posterUrl: poster(slug),
       type: isSeries ? "series" : "movie",
       year: row.y ? Number(row.y) : undefined,
-      description: row.q ? "Quality: " + row.q : "",
+      description: row.q ? "Quality: " + row.q : ""
     });
   }
 
-  // ---------- HTTP ----------
   async function httpJson(url, opt) {
     opt = opt || {};
-    const headers = Object.assign({}, HEADERS, opt.headers || {});
-    const method = opt.method || "GET";
+    var headers = Object.assign({}, HEADERS, opt.headers || {});
+    var method = opt.method || "GET";
     if (typeof fetch === "function") {
-      const r = await fetch(url, {
-        method: method,
-        headers: headers,
-        body: opt.body || undefined,
-      });
+      var r = await fetch(url, { method: method, headers: headers, body: opt.body || undefined });
       if (!r.ok) throw new Error("HTTP " + r.status);
       return await r.json();
     }
     if (typeof http_get === "function" && method === "GET") {
-      const res = await http_get(url, headers);
-      const body = res && res.body !== undefined ? res.body : res;
+      var res = await http_get(url, headers);
+      var body = res && res.body !== undefined ? res.body : res;
       return typeof body === "string" ? JSON.parse(body) : body;
     }
     if (typeof http_post === "function" && method === "POST") {
-      const res = await http_post(url, opt.body, headers);
-      const body = res && res.body !== undefined ? res.body : res;
-      return typeof body === "string" ? JSON.parse(body) : body;
+      var res2 = await http_post(url, opt.body, headers);
+      var body2 = res2 && res2.body !== undefined ? res2.body : res2;
+      return typeof body2 === "string" ? JSON.parse(body2) : body2;
     }
-    throw new Error("No HTTP client available in runtime");
+    throw new Error("No HTTP client available");
   }
-
   async function httpText(url) {
     if (typeof fetch === "function") {
-      const r = await fetch(url, { headers: HEADERS });
+      var r = await fetch(url, { headers: HEADERS });
       if (!r.ok) throw new Error("HTTP " + r.status);
       return await r.text();
     }
     if (typeof http_get === "function") {
-      const res = await http_get(url, HEADERS);
-      const body = res && res.body !== undefined ? res.body : res;
+      var res = await http_get(url, HEADERS);
+      var body = res && res.body !== undefined ? res.body : res;
       return typeof body === "string" ? body : String(body || "");
     }
-    throw new Error("No HTTP client available in runtime");
+    throw new Error("No HTTP client available");
   }
 
   function bytesToHex(bytes) {
-    return Array.from(bytes)
-      .map(function (b) {
-        return ("0" + (b & 0xff).toString(16)).slice(-2);
-      })
-      .join("");
+    var s = "";
+    for (var i = 0; i < bytes.length; i++) s += ("0" + (bytes[i] & 0xff).toString(16)).slice(-2);
+    return s;
   }
-
   function hexToBytes(hex) {
-    const out = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < out.length; i++) {
-      out[i] = parseInt(hex.substr(i * 2, 2), 16);
-    }
+    var out = new Uint8Array(hex.length / 2);
+    for (var i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
     return out;
   }
-
-  function getSubtle() {
-    if (typeof crypto !== "undefined" && crypto.subtle) return crypto.subtle;
-    if (
-      typeof globalThis !== "undefined" &&
-      globalThis.crypto &&
-      globalThis.crypto.subtle
-    )
-      return globalThis.crypto.subtle;
-    return null;
-  }
-
   function getRandomValues(len) {
-    const a = new Uint8Array(len);
-    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-      crypto.getRandomValues(a);
-    } else {
-      for (let i = 0; i < len; i++) a[i] = (Math.random() * 256) | 0;
-    }
+    var a = new Uint8Array(len);
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) crypto.getRandomValues(a);
+    else for (var i = 0; i < len; i++) a[i] = (Math.random() * 256) | 0;
     return a;
   }
 
-  // PBKDF2("player") + AES-GCM  — used for /get/ and decrypting embed info
-  async function derivePlayerKey(salt) {
-    const subtle = getSubtle();
-    if (!subtle) throw new Error("WebCrypto unavailable");
-    const enc = new TextEncoder();
-    const baseKey = await subtle.importKey(
-      "raw",
-      enc.encode("player"),
-      "PBKDF2",
-      false,
-      ["deriveKey"]
-    );
-    return subtle.deriveKey(
-      { name: "PBKDF2", salt: salt, iterations: 1000, hash: "SHA-256" },
-      baseKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"]
-    );
+  function buildGetPath(mid, ep, server) {
+    var plain = String(mid) + "+" + String(ep) + "+" + String(server) + "+" + Math.floor(Date.now() / 1000);
+    var salt = getRandomValues(8);
+    var iv = getRandomValues(12);
+    var key = pbkdf2("player", salt, 1000, 32);
+    var cipher = aesGcmEncrypt(key, iv, strBytes(plain));
+    return bytesToHex(salt) + "-" + bytesToHex(iv) + "-" + bytesToHex(cipher);
   }
-
-  async function buildGetPath(mid, ep, server) {
-    const subtle = getSubtle();
-    if (!subtle) throw new Error("WebCrypto unavailable");
-    const plain =
-      String(mid) +
-      "+" +
-      String(ep) +
-      "+" +
-      String(server) +
-      "+" +
-      Math.floor(Date.now() / 1000);
-    const salt = getRandomValues(8);
-    const iv = getRandomValues(12);
-    const key = await derivePlayerKey(salt);
-    const cipher = await subtle.encrypt(
-      { name: "AES-GCM", iv: iv },
-      key,
-      new TextEncoder().encode(plain)
-    );
-    return (
-      bytesToHex(salt) +
-      "-" +
-      bytesToHex(iv) +
-      "-" +
-      bytesToHex(new Uint8Array(cipher))
-    );
-  }
-
-  async function decryptPlayerBlob(blob) {
-    const subtle = getSubtle();
-    if (!subtle) return null;
-    const parts = String(blob).split("-");
-    if (parts.length < 3) return null;
-    const salt = hexToBytes(parts[0]);
-    const iv = hexToBytes(parts[1]);
-    const data = hexToBytes(parts.slice(2).join(""));
-    if (data.length < 17) return null;
+  function decryptPlayerBlob(blob) {
     try {
-      const key = await derivePlayerKey(salt);
-      const pt = await subtle.decrypt(
-        { name: "AES-GCM", iv: iv },
-        key,
-        data
-      );
-      return new TextDecoder().decode(pt);
-    } catch (e) {
-      return null;
-    }
+      var parts = String(blob).split("-");
+      if (parts.length < 3) return null;
+      var salt = hexToBytes(parts[0]);
+      var iv = hexToBytes(parts[1]);
+      var data = hexToBytes(parts.slice(2).join(""));
+      if (data.length < 17) return null;
+      var key = pbkdf2("player", salt, 1000, 32);
+      return strFromBytes(aesGcmDecrypt(key, iv, data));
+    } catch (e) { return null; }
   }
 
   async function tryNetodaServer(mid, ep, server) {
-    const path = await buildGetPath(mid, ep, server);
-    const json = await httpJson(PLAYER + "/get/" + path, {
-      headers: {
-        Referer: PLAYER + "/watch/?v" + server + ep,
-        "User-Agent": UA,
-        Accept: "*/*",
-      },
+    var path = buildGetPath(mid, ep, server);
+    var json = await httpJson(PLAYER + "/get/" + path, {
+      headers: { Referer: PLAYER + "/watch/?v" + server + ep, "User-Agent": UA, Accept: "*/*" }
     });
     if (!json || json.code !== 200 || !json.info) return null;
 
@@ -236,333 +383,191 @@
       return {
         url: PLAYER + "/hls/" + json.info + "/master.m3u8",
         name: "Server " + server + " (Direct)",
-        headers: { Referer: PLAYER + "/", "User-Agent": UA },
+        headers: { Referer: PLAYER + "/", "User-Agent": UA }
       };
     }
-
-    // embed: info decrypts to e.g. https://vidara.to/e/FILECODE-timestamp
     if (json.mode === "embed") {
-      const decoded = await decryptPlayerBlob(json.info);
+      var decoded = decryptPlayerBlob(json.info);
       if (decoded) {
-        const m = decoded.match(/vidara\.to\/e\/([A-Za-z0-9]+)/);
+        var m = decoded.match(/vidara\.to\/e\/([A-Za-z0-9]+)/);
         if (m) {
-          const filecode = m[1];
+          var filecode = m[1];
           try {
-            const stream = await httpJson(VIDARA + "/api/stream", {
+            var stream = await httpJson(VIDARA + "/api/stream", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 Referer: VIDARA + "/e/" + filecode,
-                "User-Agent": UA,
+                "User-Agent": UA
               },
-              body: JSON.stringify({ filecode: filecode, device: "web" }),
+              body: JSON.stringify({ filecode: filecode, device: "web" })
             });
             if (stream && stream.streaming_url) {
               return {
                 url: stream.streaming_url,
                 name: "Server " + server + " (Vidara)",
-                headers: {
-                  Referer: VIDARA + "/",
-                  "User-Agent": UA,
-                },
+                headers: { Referer: VIDARA + "/", "User-Agent": UA }
               };
             }
-          } catch (e) {
-            /* fall through */
-          }
+          } catch (e) {}
         }
       }
     }
     return null;
   }
 
-  // ---------- getHome ----------
   async function getHome(cb) {
     try {
-      const data = await httpJson(base() + "/index.json");
-      const list = Array.isArray(data) ? data : [];
-      const latest = [];
-      const series = [];
-      const movies = [];
-      for (let i = 0; i < list.length && latest.length < 48; i++) {
-        const item = toItem(list[i]);
+      var data = await httpJson(base() + "/index.json");
+      var list = Array.isArray(data) ? data : [];
+      var latest = [], series = [], movies = [];
+      for (var i = 0; i < list.length && latest.length < 48; i++) {
+        var item = toItem(list[i]);
         if (!item) continue;
         latest.push(item);
         if (item.type === "series" && series.length < 30) series.push(item);
         if (item.type === "movie" && movies.length < 30) movies.push(item);
       }
-      cb({
-        success: true,
-        data: {
-          Trending: latest.slice(0, 20),
-          Latest: latest,
-          Series: series,
-          Movies: movies,
-        },
-      });
+      cb({ success: true, data: { Trending: latest.slice(0, 20), Latest: latest, Series: series, Movies: movies } });
     } catch (e) {
-      cb({
-        success: false,
-        errorCode: "HOME_ERROR",
-        message: String(e && e.message ? e.message : e),
-      });
+      cb({ success: false, errorCode: "HOME_ERROR", message: String(e && e.message ? e.message : e) });
     }
   }
 
-  // ---------- search ----------
   async function search(query, cb) {
     try {
-      const raw = String(query || "").trim();
+      var raw = String(query || "").trim();
       if (!raw) return cb({ success: true, data: [] });
-      let rows = [];
+      var rows = [];
       try {
-        const json = await httpJson(
-          base() +
-            "/searching?q=" +
-            encodeURIComponent(raw) +
-            "&limit=40&offset=0"
-        );
+        var json = await httpJson(base() + "/searching?q=" + encodeURIComponent(raw) + "&limit=40&offset=0");
         rows = (json && json.data) || [];
       } catch (e) {
-        const all = await httpJson(base() + "/index.json");
-        const needle = raw.toLowerCase();
-        rows = (Array.isArray(all) ? all : [])
-          .filter(function (r) {
-            return (r.t || r.title || "").toLowerCase().indexOf(needle) !== -1;
-          })
-          .slice(0, 40);
+        var all = await httpJson(base() + "/index.json");
+        var needle = raw.toLowerCase();
+        rows = (Array.isArray(all) ? all : []).filter(function (r) {
+          return (r.t || r.title || "").toLowerCase().indexOf(needle) !== -1;
+        }).slice(0, 40);
       }
-      const out = [];
-      for (let i = 0; i < rows.length; i++) {
-        const item = toItem(rows[i]);
+      var out = [];
+      for (var i = 0; i < rows.length; i++) {
+        var item = toItem(rows[i]);
         if (item) out.push(item);
       }
       cb({ success: true, data: out });
     } catch (e) {
-      cb({
-        success: false,
-        errorCode: "SEARCH_ERROR",
-        message: String(e && e.message ? e.message : e),
-      });
+      cb({ success: false, errorCode: "SEARCH_ERROR", message: String(e && e.message ? e.message : e) });
     }
   }
 
-  // ---------- load ----------
   async function load(url, cb) {
     try {
-      const info = parseUrl(url);
-      const slug = info.slug;
-      if (!slug) {
-        return cb({
-          success: false,
-          errorCode: "NO_SLUG",
-          message: "Missing title slug",
-        });
-      }
-
-      const pageUrl = base() + "/film/" + slug + "/";
-      const htmlStr = await httpText(pageUrl);
-
-      let title = info.title || slug;
-      const titleMatch = htmlStr.match(/<title[^>]*>([^<]+)/i);
-      if (titleMatch) {
-        title = titleMatch[1]
-          .replace(/^Watch\s+/i, "")
-          .replace(/\s+on\s+Fmovies.*/i, "")
-          .replace(/\s*\|\s*.*$/, "")
-          .trim();
-      }
-
-      let mid = info.mid;
-      const midMatch = htmlStr.match(/data-mid\s*=\s*["']?(\d+)/i);
+      var info = parseUrl(url);
+      var slug = info.slug;
+      if (!slug) return cb({ success: false, errorCode: "NO_SLUG", message: "Missing title slug" });
+      var htmlStr = await httpText(base() + "/film/" + slug + "/");
+      var title = info.title || slug;
+      var titleMatch = htmlStr.match(/<title[^>]*>([^<]+)/i);
+      if (titleMatch) title = titleMatch[1].replace(/^Watch\s+/i, "").replace(/\s+on\s+Fmovies.*/i, "").replace(/\s*\|\s*.*$/, "").trim();
+      var mid = info.mid;
+      var midMatch = htmlStr.match(/data-mid\s*=\s*["']?(\d+)/i);
       if (midMatch) mid = midMatch[1];
-      if (!mid) {
-        const m = String(slug).match(/-(\d+)$/);
-        if (m) mid = m[1];
-      }
-
-      let description = "";
-      const descMatch = htmlStr.match(
-        /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)/i
-      );
+      if (!mid) { var mm = String(slug).match(/-(\d+)$/); if (mm) mid = mm[1]; }
+      var description = "";
+      var descMatch = htmlStr.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)/i);
       if (descMatch) description = descMatch[1];
-
-      let year = info.year;
-      if (!year) {
-        const y2 = htmlStr.match(/\b(19|20)\d{2}\b/);
-        if (y2) year = Number(y2[0]);
-      }
-
-      const servers = [];
-      const srvRe = /id=["']srv-(\d+)["'][^>]*>([^<]*)</gi;
-      let sm;
+      var year = info.year;
+      if (!year) { var y2 = htmlStr.match(/\b(19|20)\d{2}\b/); if (y2) year = Number(y2[0]); }
+      var servers = [];
+      var srvRe = /id=["']srv-(\d+)["'][^>]*>([^<]*)</gi;
+      var sm;
       while ((sm = srvRe.exec(htmlStr)) !== null) {
-        servers.push({
-          id: sm[1],
-          name: (sm[2] || "Server " + sm[1]).trim() || "Server " + sm[1],
-        });
+        servers.push({ id: sm[1], name: (sm[2] || "Server " + sm[1]).trim() || "Server " + sm[1] });
       }
-      if (servers.length === 0) {
-        for (let s = 1; s <= 7; s++) {
-          servers.push({ id: String(s), name: "Server " + s });
-        }
-      }
-
-      const eps = [];
-      const epRe = /id=["']ep-(\d+)["'][^>]*(?:title=["']([^"']*)["'])?/gi;
-      let em;
-      while ((em = epRe.exec(htmlStr)) !== null) {
-        eps.push({ id: em[1], title: em[2] || "Episode " + em[1] });
-      }
-
-      const modeMatch = htmlStr.match(/data-mode\s*=\s*["']([^"']+)/i);
-      const dataMode = modeMatch ? modeMatch[1] : null;
-      const isSeries =
-        dataMode === "tv" ||
-        eps.length > 1 ||
-        /season/i.test(title) ||
-        info.type === "series";
-
-      let episodes = [];
+      if (servers.length === 0) for (var s = 1; s <= 7; s++) servers.push({ id: String(s), name: "Server " + s });
+      var eps = [];
+      var epRe = /id=["']ep-(\d+)["'][^>]*(?:title=["']([^"']*)["'])?/gi;
+      var em;
+      while ((em = epRe.exec(htmlStr)) !== null) eps.push({ id: em[1], title: em[2] || "Episode " + em[1] });
+      var modeMatch = htmlStr.match(/data-mode\s*=\s*["']([^"']+)/i);
+      var dataMode = modeMatch ? modeMatch[1] : null;
+      var isSeries = dataMode === "tv" || eps.length > 1 || /season/i.test(title) || info.type === "series";
+      var episodes;
       if (isSeries && eps.length > 0) {
         episodes = eps.map(function (ep) {
           return new MultimediaItem({
             title: ep.title,
-            url: itemUrl(slug, mid, "series", {
-              ep: ep.id,
-              servers: servers,
-              title: title,
-              year: year,
-            }),
-            posterUrl: poster(slug),
-            type: "episode",
+            url: itemUrl(slug, mid, "series", { ep: ep.id, servers: servers, title: title, year: year }),
+            posterUrl: poster(slug), type: "episode"
           });
         });
       } else {
-        episodes = [
-          new MultimediaItem({
-            title: title,
-            url: itemUrl(slug, mid, "movie", {
-              ep: "1",
-              servers: servers,
-              title: title,
-              year: year,
-            }),
-            posterUrl: poster(slug),
-            type: "movie",
-          }),
-        ];
+        episodes = [new MultimediaItem({
+          title: title,
+          url: itemUrl(slug, mid, "movie", { ep: "1", servers: servers, title: title, year: year }),
+          posterUrl: poster(slug), type: "movie"
+        })];
       }
-
       cb({
         success: true,
         data: new MultimediaItem({
-          title: title,
-          url: url,
-          posterUrl: poster(slug),
-          bannerUrl: cover(slug),
-          type: isSeries ? "series" : "movie",
-          year: year,
-          description: description,
-          episodes: episodes,
-        }),
+          title: title, url: url, posterUrl: poster(slug), bannerUrl: cover(slug),
+          type: isSeries ? "series" : "movie", year: year, description: description, episodes: episodes
+        })
       });
     } catch (e) {
-      cb({
-        success: false,
-        errorCode: "LOAD_ERROR",
-        message: String(e && e.message ? e.message : e),
-      });
+      cb({ success: false, errorCode: "LOAD_ERROR", message: String(e && e.message ? e.message : e) });
     }
   }
 
-  // ---------- loadStreams ----------
   async function loadStreams(url, cb) {
     try {
-      const info = parseUrl(url);
-      let mid = info.mid;
+      var info = parseUrl(url);
+      var mid = info.mid;
       if (!mid && info.slug) {
-        const m = String(info.slug).match(/-(\d+)$/);
+        var m = String(info.slug).match(/-(\d+)$/);
         if (m) mid = m[1];
       }
-      const ep = String(info.ep || "1");
-
+      var ep = String(info.ep || "1");
       if (!mid) {
-        return cb({
-          success: false,
-          errorCode: "NO_MID",
-          message: "Movie id missing — open the title from search first",
-        });
+        return cb({ success: false, errorCode: "NO_MID", message: "Movie id missing — open the title from search first" });
       }
-
-      if (!getSubtle()) {
-        return cb({
-          success: false,
-          errorCode: "NO_CRYPTO",
-          message: "WebCrypto not available in this runtime",
-        });
-      }
-
-      // Always try servers 1–7 (page server list may be incomplete)
-      const serverIds = [];
+      var serverIds = [];
       if (info.servers && info.servers.length) {
-        for (let i = 0; i < info.servers.length; i++) {
-          serverIds.push(String(info.servers[i].id || info.servers[i]));
-        }
+        for (var i = 0; i < info.servers.length; i++) serverIds.push(String(info.servers[i].id || info.servers[i]));
       }
-      for (let s = 1; s <= 7; s++) {
-        const id = String(s);
+      for (var s = 1; s <= 7; s++) {
+        var id = String(s);
         if (serverIds.indexOf(id) === -1) serverIds.push(id);
       }
-
-      const streams = [];
-      const seen = {};
-      const errors = [];
-
-      for (let i = 0; i < serverIds.length; i++) {
-        const sid = serverIds[i];
+      var streams = [];
+      var seen = {};
+      var errors = [];
+      for (var i = 0; i < serverIds.length; i++) {
+        var sid = serverIds[i];
         try {
-          const result = await tryNetodaServer(mid, ep, sid);
+          var result = await tryNetodaServer(mid, ep, sid);
           if (result && result.url && !seen[result.url]) {
             seen[result.url] = true;
-            streams.push(
-              new StreamResult({
-                url: result.url,
-                quality: "HD",
-                name: result.name || "Server " + sid,
-                headers: result.headers || {
-                  Referer: PLAYER + "/",
-                  "User-Agent": UA,
-                },
-              })
-            );
+            streams.push(new StreamResult({
+              url: result.url, quality: "HD",
+              name: result.name || ("Server " + sid),
+              headers: result.headers || { Referer: PLAYER + "/", "User-Agent": UA }
+            }));
           }
         } catch (e) {
           errors.push("s" + sid + ":" + String(e && e.message ? e.message : e));
         }
       }
-
       if (streams.length === 0) {
         return cb({
-          success: false,
-          errorCode: "NO_STREAMS",
-          message:
-            "No streams (mid=" +
-            mid +
-            " ep=" +
-            ep +
-            "). " +
-            (errors.length ? errors.slice(0, 3).join("; ") : "all servers empty"),
+          success: false, errorCode: "NO_STREAMS",
+          message: "No streams (mid=" + mid + " ep=" + ep + "). " + (errors.length ? errors.slice(0, 3).join("; ") : "all servers empty")
         });
       }
-
       cb({ success: true, data: streams });
     } catch (e) {
-      cb({
-        success: false,
-        errorCode: "STREAM_ERROR",
-        message: String(e && e.message ? e.message : e),
-      });
+      cb({ success: false, errorCode: "STREAM_ERROR", message: String(e && e.message ? e.message : e) });
     }
   }
 
