@@ -208,8 +208,9 @@
     return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
-  // Netoda /get/ path: salt(8)-iv(12)-ciphertext as hex
-  async function buildGetPath(mid, ep, server, country) {
+  // Netoda /get/ path: PBKDF2("player", salt, 1000) -> AES-GCM
+  // plain = mid+ep+server+timestamp (no country)
+  async function buildGetPath(mid, ep, server) {
     const subtle = getSubtle();
     if (!subtle) return null;
     const plain =
@@ -219,17 +220,21 @@
       "+" +
       String(server) +
       "+" +
-      String(country) +
-      "+" +
       Math.floor(Date.now() / 1000);
     const enc = new TextEncoder();
-    const keyMaterial = await subtle.digest("SHA-256", enc.encode(country));
     const salt = getRandomValues(8);
     const iv = getRandomValues(12);
-    const key = await subtle.importKey(
+    const baseKey = await subtle.importKey(
       "raw",
-      keyMaterial,
-      { name: "AES-GCM" },
+      enc.encode("player"),
+      "PBKDF2",
+      false,
+      ["deriveKey"]
+    );
+    const key = await subtle.deriveKey(
+      { name: "PBKDF2", salt: salt, iterations: 1000, hash: "SHA-256" },
+      baseKey,
+      { name: "AES-GCM", length: 256 },
       false,
       ["encrypt"]
     );
@@ -279,8 +284,8 @@
     return null;
   }
 
-  async function tryNetodaDirect(mid, ep, server, country) {
-    const path = await buildGetPath(mid, ep, server, country);
+  async function tryNetodaDirect(mid, ep, server) {
+    const path = await buildGetPath(mid, ep, server);
     if (!path) return null;
     try {
       const json = await httpJson(PLAYER + "/get/" + path, {
@@ -297,7 +302,6 @@
           info: json.info,
         };
       }
-      // embed mode: info is another encrypted blob; return mode for caller
       return { mode: "embed", info: json.info };
     } catch (e) {
       return null;
@@ -552,7 +556,7 @@
         const sid = String(srv.id || srv);
         const sname = srv.name || "Server " + sid;
         try {
-          const result = await tryNetodaDirect(mid, ep, sid, country);
+          const result = await tryNetodaDirect(mid, ep, sid);
           if (result && result.mode === "direct" && result.url) {
             pushStream(
               new StreamResult({
