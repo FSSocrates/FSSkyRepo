@@ -1,6 +1,6 @@
 [
   {
-    "packageName": "org.fssocrates.fmovies",
+    "packageName": "io.fsskyrepo.fmovies",
     "name": "FMovies",
     "version": 2,
     "description": "FMovies (fmoviess.org) — browse, search, and stream via Netoda HLS",
@@ -26,6 +26,6 @@
         "url": "https://fmovies.to"
       }
     ],
-    "url": "https://raw.githubusercontent.com/FSSocrates/FSSkyRepo/main/dist/org.fssocrates.fmovies.sky"
+    "url": "https://raw.githubusercontent.com/FSSocrates/FSSkyRepo/main/dist/io.fsskyrepo.fmovies.sky"
   }
 ]
