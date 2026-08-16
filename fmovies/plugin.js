@@ -3,6 +3,7 @@
 
   const IMG_CDN = "https://img.cdno.my.id";
   const PLAYER = "https://netoda.tech";
+  const VIDARA = "https://vidara.to";
   const UA =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
   const HEADERS = {
@@ -10,25 +11,6 @@
     Accept: "application/json, text/html, */*",
     "Accept-Language": "en-US,en;q=0.9",
   };
-
-  // Embed hosts that take TMDB ids (fallback when direct HLS is unavailable)
-  const EMBED_MOVIE = [
-    "https://vidsrc.cc/v2/embed/movie/",
-    "https://vidfast.pro/movie/",
-    "https://vidlink.pro/movie/",
-    "https://vidnest.fun/movie/",
-    "https://player.videasy.net/movie/",
-    "https://vsembed.ru/embed/movie/",
-    "https://embos.top/movie/?mid=",
-  ];
-  const EMBED_TV = [
-    "https://vidsrc.cc/v2/embed/tv/",
-    "https://vidfast.pro/tv/",
-    "https://vidlink.pro/tv/",
-    "https://vidnest.fun/tv/",
-    "https://player.videasy.net/tv/",
-    "https://vsembed.ru/embed/tv/",
-  ];
 
   function base() {
     return (
@@ -90,41 +72,41 @@
     });
   }
 
-  // ---------- HTTP helpers (app fetch + CLI http_get) ----------
+  // ---------- HTTP ----------
   async function httpJson(url, opt) {
     opt = opt || {};
     const headers = Object.assign({}, HEADERS, opt.headers || {});
+    const method = opt.method || "GET";
     if (typeof fetch === "function") {
       const r = await fetch(url, {
-        method: opt.method || "GET",
+        method: method,
         headers: headers,
-        body: opt.body,
+        body: opt.body || undefined,
       });
       if (!r.ok) throw new Error("HTTP " + r.status);
       return await r.json();
     }
-    if (typeof http_get === "function" && (!opt.method || opt.method === "GET")) {
+    if (typeof http_get === "function" && method === "GET") {
       const res = await http_get(url, headers);
+      const body = res && res.body !== undefined ? res.body : res;
+      return typeof body === "string" ? JSON.parse(body) : body;
+    }
+    if (typeof http_post === "function" && method === "POST") {
+      const res = await http_post(url, opt.body, headers);
       const body = res && res.body !== undefined ? res.body : res;
       return typeof body === "string" ? JSON.parse(body) : body;
     }
     throw new Error("No HTTP client available in runtime");
   }
 
-  async function httpText(url, opt) {
-    opt = opt || {};
-    const headers = Object.assign({}, HEADERS, opt.headers || {});
+  async function httpText(url) {
     if (typeof fetch === "function") {
-      const r = await fetch(url, {
-        method: opt.method || "GET",
-        headers: headers,
-        body: opt.body,
-      });
+      const r = await fetch(url, { headers: HEADERS });
       if (!r.ok) throw new Error("HTTP " + r.status);
       return await r.text();
     }
-    if (typeof http_get === "function" && (!opt.method || opt.method === "GET")) {
-      const res = await http_get(url, headers);
+    if (typeof http_get === "function") {
+      const res = await http_get(url, HEADERS);
       const body = res && res.body !== undefined ? res.body : res;
       return typeof body === "string" ? body : String(body || "");
     }
@@ -139,9 +121,21 @@
       .join("");
   }
 
+  function hexToBytes(hex) {
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) {
+      out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    return out;
+  }
+
   function getSubtle() {
     if (typeof crypto !== "undefined" && crypto.subtle) return crypto.subtle;
-    if (typeof globalThis !== "undefined" && globalThis.crypto && globalThis.crypto.subtle)
+    if (
+      typeof globalThis !== "undefined" &&
+      globalThis.crypto &&
+      globalThis.crypto.subtle
+    )
       return globalThis.crypto.subtle;
     return null;
   }
@@ -156,74 +150,11 @@
     return a;
   }
 
-  // FMovies watch-hash token (base64url of iv||ciphertext)
-  async function buildWatchToken(mid, ep, server, country) {
+  // PBKDF2("player") + AES-GCM  — used for /get/ and decrypting embed info
+  async function derivePlayerKey(salt) {
     const subtle = getSubtle();
-    if (!subtle) return null;
-    const plain =
-      String(mid) +
-      "+" +
-      String(ep) +
-      "+" +
-      String(server) +
-      "+" +
-      String(country) +
-      "+" +
-      Math.floor(Date.now() / 1000);
+    if (!subtle) throw new Error("WebCrypto unavailable");
     const enc = new TextEncoder();
-    const keyMaterial = await subtle.digest("SHA-256", enc.encode(country));
-    const iv = getRandomValues(12);
-    const key = await subtle.importKey(
-      "raw",
-      keyMaterial,
-      { name: "AES-GCM" },
-      false,
-      ["encrypt"]
-    );
-    const cipher = await subtle.encrypt(
-      { name: "AES-GCM", iv: iv },
-      key,
-      enc.encode(plain)
-    );
-    const ivStr = Array.from(iv)
-      .map(function (b) {
-        return String.fromCharCode(b);
-      })
-      .join("");
-    const ctStr = Array.from(new Uint8Array(cipher))
-      .map(function (b) {
-        return String.fromCharCode(b);
-      })
-      .join("");
-    // btoa of binary string
-    let b64;
-    if (typeof btoa === "function") {
-      b64 = btoa(ivStr + ctStr);
-    } else {
-      const raw = new Uint8Array(iv.length + cipher.byteLength);
-      raw.set(iv, 0);
-      raw.set(new Uint8Array(cipher), iv.length);
-      b64 = Buffer.from(raw).toString("base64");
-    }
-    return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-
-  // Netoda /get/ path: PBKDF2("player", salt, 1000) -> AES-GCM
-  // plain = mid+ep+server+timestamp (no country)
-  async function buildGetPath(mid, ep, server) {
-    const subtle = getSubtle();
-    if (!subtle) return null;
-    const plain =
-      String(mid) +
-      "+" +
-      String(ep) +
-      "+" +
-      String(server) +
-      "+" +
-      Math.floor(Date.now() / 1000);
-    const enc = new TextEncoder();
-    const salt = getRandomValues(8);
-    const iv = getRandomValues(12);
     const baseKey = await subtle.importKey(
       "raw",
       enc.encode("player"),
@@ -231,17 +162,33 @@
       false,
       ["deriveKey"]
     );
-    const key = await subtle.deriveKey(
+    return subtle.deriveKey(
       { name: "PBKDF2", salt: salt, iterations: 1000, hash: "SHA-256" },
       baseKey,
       { name: "AES-GCM", length: 256 },
       false,
-      ["encrypt"]
+      ["encrypt", "decrypt"]
     );
+  }
+
+  async function buildGetPath(mid, ep, server) {
+    const subtle = getSubtle();
+    if (!subtle) throw new Error("WebCrypto unavailable");
+    const plain =
+      String(mid) +
+      "+" +
+      String(ep) +
+      "+" +
+      String(server) +
+      "+" +
+      Math.floor(Date.now() / 1000);
+    const salt = getRandomValues(8);
+    const iv = getRandomValues(12);
+    const key = await derivePlayerKey(salt);
     const cipher = await subtle.encrypt(
       { name: "AES-GCM", iv: iv },
       key,
-      enc.encode(plain)
+      new TextEncoder().encode(plain)
     );
     return (
       bytesToHex(salt) +
@@ -252,60 +199,81 @@
     );
   }
 
-  async function getCountry() {
+  async function decryptPlayerBlob(blob) {
+    const subtle = getSubtle();
+    if (!subtle) return null;
+    const parts = String(blob).split("-");
+    if (parts.length < 3) return null;
+    const salt = hexToBytes(parts[0]);
+    const iv = hexToBytes(parts[1]);
+    const data = hexToBytes(parts.slice(2).join(""));
+    if (data.length < 17) return null;
     try {
-      const text = await httpText(PLAYER + "/cdn-cgi/trace");
-      const m = text.match(/loc=([A-Z]{2})/);
-      if (m) return m[1];
-    } catch (e) {}
-    try {
-      const text = await httpText(base() + "/cdn-cgi/trace");
-      const m = text.match(/loc=([A-Z]{2})/);
-      if (m) return m[1];
-    } catch (e) {}
-    return "US";
-  }
-
-  // Resolve TMDB id from title (best-effort, no API key)
-  async function resolveTmdbId(title, year) {
-    if (!title) return null;
-    try {
-      const q = encodeURIComponent(String(title).replace(/\s+/g, " ").trim());
-      // TMDB public search via themoviedb mirror-less: try vidsrc metadata API
-      const meta = await httpJson(
-        "https://data.vidsrcme.ru/api.php?type=movie&tmdb=0&q=" + q
-      ).catch(function () {
-        return null;
-      });
-      if (meta && meta.data && meta.data.tmdb_id) return String(meta.data.tmdb_id);
-
-      // IMDb suggestion → not TMDB, skip
-    } catch (e) {}
-    return null;
-  }
-
-  async function tryNetodaDirect(mid, ep, server) {
-    const path = await buildGetPath(mid, ep, server);
-    if (!path) return null;
-    try {
-      const json = await httpJson(PLAYER + "/get/" + path, {
-        headers: {
-          Referer: PLAYER + "/watch/?v" + server + ep,
-          "User-Agent": UA,
-        },
-      });
-      if (!json || json.code !== 200 || !json.info) return null;
-      if (json.mode === "direct") {
-        return {
-          url: PLAYER + "/hls/" + json.info + "/master.m3u8",
-          mode: "direct",
-          info: json.info,
-        };
-      }
-      return { mode: "embed", info: json.info };
+      const key = await derivePlayerKey(salt);
+      const pt = await subtle.decrypt(
+        { name: "AES-GCM", iv: iv },
+        key,
+        data
+      );
+      return new TextDecoder().decode(pt);
     } catch (e) {
       return null;
     }
+  }
+
+  async function tryNetodaServer(mid, ep, server) {
+    const path = await buildGetPath(mid, ep, server);
+    const json = await httpJson(PLAYER + "/get/" + path, {
+      headers: {
+        Referer: PLAYER + "/watch/?v" + server + ep,
+        "User-Agent": UA,
+        Accept: "*/*",
+      },
+    });
+    if (!json || json.code !== 200 || !json.info) return null;
+
+    if (json.mode === "direct") {
+      return {
+        url: PLAYER + "/hls/" + json.info + "/master.m3u8",
+        name: "Server " + server + " (Direct)",
+        headers: { Referer: PLAYER + "/", "User-Agent": UA },
+      };
+    }
+
+    // embed: info decrypts to e.g. https://vidara.to/e/FILECODE-timestamp
+    if (json.mode === "embed") {
+      const decoded = await decryptPlayerBlob(json.info);
+      if (decoded) {
+        const m = decoded.match(/vidara\.to\/e\/([A-Za-z0-9]+)/);
+        if (m) {
+          const filecode = m[1];
+          try {
+            const stream = await httpJson(VIDARA + "/api/stream", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Referer: VIDARA + "/e/" + filecode,
+                "User-Agent": UA,
+              },
+              body: JSON.stringify({ filecode: filecode, device: "web" }),
+            });
+            if (stream && stream.streaming_url) {
+              return {
+                url: stream.streaming_url,
+                name: "Server " + server + " (Vidara)",
+                headers: {
+                  Referer: VIDARA + "/",
+                  "User-Agent": UA,
+                },
+              };
+            }
+          } catch (e) {
+            /* fall through */
+          }
+        }
+      }
+    }
+    return null;
   }
 
   // ---------- getHome ----------
@@ -313,11 +281,9 @@
     try {
       const data = await httpJson(base() + "/index.json");
       const list = Array.isArray(data) ? data : [];
-
       const latest = [];
       const series = [];
       const movies = [];
-
       for (let i = 0; i < list.length && latest.length < 48; i++) {
         const item = toItem(list[i]);
         if (!item) continue;
@@ -325,7 +291,6 @@
         if (item.type === "series" && series.length < 30) series.push(item);
         if (item.type === "movie" && movies.length < 30) movies.push(item);
       }
-
       cb({
         success: true,
         data: {
@@ -349,7 +314,6 @@
     try {
       const raw = String(query || "").trim();
       if (!raw) return cb({ success: true, data: [] });
-
       let rows = [];
       try {
         const json = await httpJson(
@@ -368,7 +332,6 @@
           })
           .slice(0, 40);
       }
-
       const out = [];
       for (let i = 0; i < rows.length; i++) {
         const item = toItem(rows[i]);
@@ -425,10 +388,6 @@
       if (descMatch) description = descMatch[1];
 
       let year = info.year;
-      const yearMatch = htmlStr.match(
-        /property=["']video:release_date["'][^>]+content=["'](\d{4})/i
-      );
-      if (yearMatch) year = Number(yearMatch[1]);
       if (!year) {
         const y2 = htmlStr.match(/\b(19|20)\d{2}\b/);
         if (y2) year = Number(y2[0]);
@@ -521,49 +480,57 @@
   async function loadStreams(url, cb) {
     try {
       const info = parseUrl(url);
-      const mid = info.mid;
-      const ep = info.ep || "1";
-      const servers =
-        info.servers && info.servers.length
-          ? info.servers
-          : [1, 2, 3, 4, 5, 6, 7].map(function (n) {
-              return { id: String(n), name: "Server " + n };
-            });
-      const isSeries = info.type === "series" || info.type === "tv";
-      const title = info.title || info.slug || "";
+      let mid = info.mid;
+      if (!mid && info.slug) {
+        const m = String(info.slug).match(/-(\d+)$/);
+        if (m) mid = m[1];
+      }
+      const ep = String(info.ep || "1");
 
       if (!mid) {
         return cb({
           success: false,
           errorCode: "NO_MID",
-          message: "Movie id missing — open the title from search/home first",
+          message: "Movie id missing — open the title from search first",
         });
       }
 
-      const country = await getCountry();
-      const streams = [];
-      const seen = {};
-
-      function pushStream(s) {
-        if (!s || !s.url || seen[s.url]) return;
-        seen[s.url] = true;
-        streams.push(s);
+      if (!getSubtle()) {
+        return cb({
+          success: false,
+          errorCode: "NO_CRYPTO",
+          message: "WebCrypto not available in this runtime",
+        });
       }
 
-      // 1) Netoda direct HLS via /get/
-      for (let i = 0; i < servers.length; i++) {
-        const srv = servers[i];
-        const sid = String(srv.id || srv);
-        const sname = srv.name || "Server " + sid;
+      // Always try servers 1–7 (page server list may be incomplete)
+      const serverIds = [];
+      if (info.servers && info.servers.length) {
+        for (let i = 0; i < info.servers.length; i++) {
+          serverIds.push(String(info.servers[i].id || info.servers[i]));
+        }
+      }
+      for (let s = 1; s <= 7; s++) {
+        const id = String(s);
+        if (serverIds.indexOf(id) === -1) serverIds.push(id);
+      }
+
+      const streams = [];
+      const seen = {};
+      const errors = [];
+
+      for (let i = 0; i < serverIds.length; i++) {
+        const sid = serverIds[i];
         try {
-          const result = await tryNetodaDirect(mid, ep, sid);
-          if (result && result.mode === "direct" && result.url) {
-            pushStream(
+          const result = await tryNetodaServer(mid, ep, sid);
+          if (result && result.url && !seen[result.url]) {
+            seen[result.url] = true;
+            streams.push(
               new StreamResult({
                 url: result.url,
                 quality: "HD",
-                name: sname + " (Direct)",
-                headers: {
+                name: result.name || "Server " + sid,
+                headers: result.headers || {
                   Referer: PLAYER + "/",
                   "User-Agent": UA,
                 },
@@ -571,51 +538,21 @@
             );
           }
         } catch (e) {
-          /* try next server */
+          errors.push("s" + sid + ":" + String(e && e.message ? e.message : e));
         }
       }
 
-      // 2) Built-in extractors on known embed hosts (TMDB or mid)
-      let tmdb = info.tmdb || null;
-      if (!tmdb && title) {
-        tmdb = await resolveTmdbId(title, info.year);
-      }
-      const idForEmbed = tmdb || mid;
-
-      if (typeof loadExtractor === "function" && idForEmbed) {
-        const embeds = isSeries ? EMBED_TV : EMBED_MOVIE;
-        for (let i = 0; i < embeds.length; i++) {
-          let embedUrl = embeds[i] + idForEmbed;
-          if (isSeries && embeds[i].indexOf("vid") !== -1) {
-            // common pattern: /tv/{id}/{season}/{episode}
-            const season = info.season || "1";
-            if (embeds[i].indexOf("vidsrc") !== -1 || embeds[i].indexOf("vidfast") !== -1) {
-              embedUrl = embeds[i] + idForEmbed + "/" + season + "/" + ep;
-            }
-          }
-          if (embeds[i].indexOf("mid=") !== -1) {
-            embedUrl = embeds[i] + idForEmbed;
-          }
-          try {
-            const extracted = await loadExtractor(embedUrl);
-            if (Array.isArray(extracted)) {
-              for (let j = 0; j < extracted.length; j++) {
-                pushStream(extracted[j]);
-              }
-            }
-          } catch (e) {
-            /* extractor not available for host */
-          }
-        }
-      }
-
-      // Do NOT return netoda /watch/ HTML pages — they hang forever in the player.
       if (streams.length === 0) {
         return cb({
           success: false,
           errorCode: "NO_STREAMS",
           message:
-            "No direct HLS yet (Netoda /get/ token mismatch). Search/browse works; playback needs a token fix.",
+            "No streams (mid=" +
+            mid +
+            " ep=" +
+            ep +
+            "). " +
+            (errors.length ? errors.slice(0, 3).join("; ") : "all servers empty"),
         });
       }
 
