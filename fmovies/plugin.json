@@ -1,27 +1,15 @@
 {
   "packageName": "org.fssocrates.fmovies",
   "name": "FMovies",
-  "version": 1,
-  "description": "FMovies scraper for SkyStream",
+  "version": 2,
+  "description": "FMovies (fmoviess.org) — browse, search, and stream via Netoda HLS",
   "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
   "baseUrl": "https://fmoviess.org",
-  "authors": [
-    "FSSocrates"
-  ],
-  "languages": [
-    "en"
-  ],
-  "categories": [
-    "Movie"
-  ],
+  "authors": ["FSSocrates"],
+  "languages": ["en"],
+  "categories": ["Movie", "Series"],
   "domains": [
-    {
-      "name": "fmoviess.org",
-      "url": "https://fmoviess.org"
-    },
-    {
-      "name": "fmovies.to",
-      "url": "https://fmovies.to"
-    }
+    { "name": "fmoviess.org", "url": "https://fmoviess.org" },
+    { "name": "fmovies.to", "url": "https://fmovies.to" }
   ]
 }
