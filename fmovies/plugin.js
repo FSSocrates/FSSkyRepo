@@ -482,6 +482,50 @@
     }
   }
 
+  
+  // Strip " - Season N" / " Season N" from series title for metadata lookup
+  function seriesBaseTitle(title) {
+    return String(title || "")
+      .replace(/\s*[-:]\s*Season\s*\d+.*$/i, "")
+      .replace(/\s+Season\s*\d+.*$/i, "")
+      .replace(/\s*\(\d{4}\)\s*$/, "")
+      .trim();
+  }
+
+  // TVMaze (free, no key) — real episode titles, summaries, air dates
+  async function fetchTvMazeEpisodes(showTitle, seasonNum) {
+    try {
+      var q = encodeURIComponent(seriesBaseTitle(showTitle));
+      if (!q) return {};
+      var show = await httpJson(
+        "https://api.tvmaze.com/singlesearch/shows?q=" + q + "&embed=episodes"
+      );
+      if (!show || !show._embedded || !show._embedded.episodes) return {};
+      var map = {};
+      var list = show._embedded.episodes;
+      for (var i = 0; i < list.length; i++) {
+        var e = list[i];
+        if (Number(e.season) !== Number(seasonNum)) continue;
+        var num = Number(e.number) || 0;
+        var summary = e.summary
+          ? String(e.summary).replace(/<[^>]+>/g, "").trim()
+          : "";
+        map[num] = {
+          name: e.name || ("Episode " + num),
+          summary: summary,
+          runtime: e.runtime || null,
+          airDate: e.airdate || null,
+          rating: e.rating && e.rating.average ? e.rating.average : null,
+          image:
+            (e.image && (e.image.medium || e.image.original)) || null
+        };
+      }
+      return map;
+    } catch (e) {
+      return {};
+    }
+  }
+
   async function load(url, cb) {
     try {
       var info = parseUrl(url);
@@ -529,12 +573,13 @@
       }
 
       if (isSeries && eps.length > 0) {
+        var metaMap = await fetchTvMazeEpisodes(title, seasonNum);
         episodes = eps.map(function (ep) {
           var epNum = parseInt(ep.id, 10) || 0;
-          var epName = ep.title || ("Episode " + epNum);
+          var meta = metaMap[epNum] || {};
+          var epName = meta.name || ep.title || ("Episode " + epNum);
           var sPad = seasonNum < 10 ? "0" + seasonNum : String(seasonNum);
           var ePad = epNum < 10 ? "0" + epNum : String(epNum);
-          // Prefer Episode class when available; fall back to MultimediaItem
           var payload = {
             name: "S" + sPad + "E" + ePad + " - " + epName,
             title: epName,
@@ -547,9 +592,13 @@
             }),
             season: seasonNum,
             episode: epNum,
-            posterUrl: poster(slug),
+            description: meta.summary || "",
+            posterUrl: meta.image || poster(slug),
             type: "episode"
           };
+          if (meta.runtime) payload.runtime = meta.runtime;
+          if (meta.airDate) payload.airDate = meta.airDate;
+          if (meta.rating) payload.rating = meta.rating;
           if (typeof Episode === "function") {
             return new Episode(payload);
           }
