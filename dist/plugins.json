@@ -2,7 +2,7 @@
   {
     "packageName": "io.fsskyrepo.fmovies",
     "name": "FMovies",
-    "version": 8,
+    "version": 9,
     "description": "FMovies — series episodes + Netoda HLS (pure JS crypto)",
     "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
     "baseUrl": "https://fmoviess.org",
