@@ -2,7 +2,7 @@
   {
     "packageName": "io.fsskyrepo.fmovies",
     "name": "FMovies",
-    "version": 16,
+    "version": 17,
     "description": "FMovies — Netoda + Vidara (Netoda preferred)",
     "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
     "baseUrl": "https://fmoviess.org",
@@ -15,16 +15,6 @@
     "categories": [
       "Movie",
       "Series"
-    ],
-    "domains": [
-      {
-        "name": "fmoviess.org",
-        "url": "https://fmoviess.org"
-      },
-      {
-        "name": "fmovies.to",
-        "url": "https://fmovies.to"
-      }
     ],
     "url": "https://raw.githubusercontent.com/FSSocrates/FSSkyRepo/main/dist/io.fsskyrepo.fmovies.sky"
   }
