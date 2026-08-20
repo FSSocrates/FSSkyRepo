@@ -592,6 +592,22 @@
   }
 
 
+  function durationToMinutes(s) {
+    if (s == null || s === "") return null;
+    if (typeof s === "number" && isFinite(s)) return Math.round(s);
+    var t = String(s).trim();
+    if (/^\d+$/.test(t)) return parseInt(t, 10);
+    var h = 0, m = 0;
+    var hm = t.match(/(\d+)\s*h/i);
+    var mm = t.match(/(\d+)\s*m/i);
+    if (hm) h = parseInt(hm[1], 10);
+    if (mm) m = parseInt(mm[1], 10);
+    if (!hm && !mm) {
+      var n = parseFloat(t);
+      return isFinite(n) ? Math.round(n) : null;
+    }
+    return h * 60 + m;
+  }
   function stripTags(s) {
     return String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   }
@@ -716,6 +732,12 @@
       var rating = film.rating;
       var duration = film.duration;
       var genres = film.genres || [];
+      var yearNum = (year != null && year !== "") ? Number(year) : null;
+      if (yearNum != null && !isFinite(yearNum)) yearNum = null;
+      else if (yearNum != null) yearNum = Math.round(yearNum);
+      var ratingNum = (rating != null && rating !== "") ? Number(rating) : null;
+      if (ratingNum != null && !isFinite(ratingNum)) ratingNum = null;
+      var durationMin = durationToMinutes(duration);
       var servers = [];
       var srvRe = /id=["']?srv-(\d+)["']?[^>]*>([^<]*)</gi;
       var sm;
@@ -758,17 +780,18 @@
               season: seasonNum,
               servers: servers,
               title: title,
-              year: year
+              year: yearNum != null ? yearNum : year
             }),
-            season: seasonNum,
-            episode: epNum,
+            season: Number(seasonNum) || 1,
+            episode: Number(epNum) || 0,
             description: meta.summary || "",
             posterUrl: meta.image || poster(slug),
             type: "episode"
           };
-          if (meta.runtime) payload.runtime = meta.runtime;
-          if (meta.airDate) payload.airDate = meta.airDate;
-          if (meta.rating) payload.rating = meta.rating;
+          var rt = durationToMinutes(meta.runtime);
+          if (rt != null) payload.runtime = rt;
+          if (rt != null) payload.duration = rt;
+          if (meta.rating != null && isFinite(Number(meta.rating))) payload.rating = Number(meta.rating);
           if (typeof Episode === "function") {
             return new Episode(payload);
           }
@@ -798,17 +821,16 @@
         posterUrl: poster(slug),
         bannerUrl: cover(slug),
         type: isSeries ? "series" : "movie",
-        year: year != null ? Number(year) : undefined,
         description: description || "",
         episodes: episodes
       };
-      if (rating != null && !isNaN(Number(rating))) itemPayload.rating = Number(rating);
-      if (duration) itemPayload.duration = String(duration);
-      if (film.quality) itemPayload.quality = String(film.quality);
+      // Dart: year/duration are int?, rating is num? — never pass strings
+      if (yearNum != null) itemPayload.year = yearNum;
+      if (ratingNum != null) itemPayload.rating = ratingNum;
+      if (durationMin != null) itemPayload.duration = durationMin;
       if (genreList && genreList.length) itemPayload.genres = genreList;
       if (castList && castList.length) itemPayload.cast = castList;
       if (directorList && directorList.length) itemPayload.directors = directorList;
-      // some hosts use singular director as string — skip to avoid String→List cast errors
       if (countryList && countryList.length) itemPayload.countries = countryList;
 
       cb({
