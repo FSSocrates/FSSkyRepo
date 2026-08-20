@@ -501,17 +501,21 @@
       var year = info.year;
       if (!year) { var y2 = htmlStr.match(/\b(19|20)\d{2}\b/); if (y2) year = Number(y2[0]); }
       var servers = [];
-      var srvRe = /id=["']srv-(\d+)["'][^>]*>([^<]*)</gi;
+      var srvRe = /id=["']?srv-(\d+)["']?[^>]*>([^<]*)</gi;
       var sm;
       while ((sm = srvRe.exec(htmlStr)) !== null) {
         servers.push({ id: sm[1], name: (sm[2] || "Server " + sm[1]).trim() || "Server " + sm[1] });
       }
       if (servers.length === 0) for (var s = 1; s <= 7; s++) servers.push({ id: String(s), name: "Server " + s });
       var eps = [];
-      var epRe = /id=["']ep-(\d+)["'][^>]*(?:title=["']([^"']*)["'])?/gi;
+      var epRe = /id=["']?ep-(\d+)["']?([^>]*)>/gi;
       var em;
-      while ((em = epRe.exec(htmlStr)) !== null) eps.push({ id: em[1], title: em[2] || "Episode " + em[1] });
-      var modeMatch = htmlStr.match(/data-mode\s*=\s*["']([^"']+)/i);
+      while ((em = epRe.exec(htmlStr)) !== null) {
+        var attrs = em[2] || "";
+        var tm = attrs.match(/title=["']([^"']*)["']/i);
+        eps.push({ id: em[1], title: (tm && tm[1]) ? tm[1] : ("Episode " + em[1]) });
+      }
+      var modeMatch = htmlStr.match(/data-mode\s*=\s*["']?([^"\'\s>]+)/i);
       var dataMode = modeMatch ? modeMatch[1] : null;
       var isSeries = dataMode === "tv" || eps.length > 1 || /season/i.test(title) || info.type === "series";
       var episodes;
