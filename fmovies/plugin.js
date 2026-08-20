@@ -781,25 +781,39 @@
           posterUrl: poster(slug), type: "movie"
         })];
       }
+      // SkyStream expects List for cast/genres/directors — never pass a plain String there
+      function splitList(s) {
+        if (!s) return undefined;
+        if (Array.isArray(s)) return s.length ? s : undefined;
+        return String(s).split(/,/).map(function (x) { return x.trim(); }).filter(Boolean);
+      }
+      var castList = splitList(film.actors);
+      var directorList = splitList(film.directors);
+      var genreList = genres.length ? genres : splitList(film.genres);
+      var countryList = splitList(film.country);
+
+      var itemPayload = {
+        title: title,
+        url: url,
+        posterUrl: poster(slug),
+        bannerUrl: cover(slug),
+        type: isSeries ? "series" : "movie",
+        year: year != null ? Number(year) : undefined,
+        description: description || "",
+        episodes: episodes
+      };
+      if (rating != null && !isNaN(Number(rating))) itemPayload.rating = Number(rating);
+      if (duration) itemPayload.duration = String(duration);
+      if (film.quality) itemPayload.quality = String(film.quality);
+      if (genreList && genreList.length) itemPayload.genres = genreList;
+      if (castList && castList.length) itemPayload.cast = castList;
+      if (directorList && directorList.length) itemPayload.directors = directorList;
+      // some hosts use singular director as string — skip to avoid String→List cast errors
+      if (countryList && countryList.length) itemPayload.countries = countryList;
+
       cb({
         success: true,
-        data: new MultimediaItem({
-          title: title,
-          url: url,
-          posterUrl: poster(slug),
-          bannerUrl: cover(slug),
-          type: isSeries ? "series" : "movie",
-          year: year,
-          description: description,
-          rating: rating || undefined,
-          duration: duration || undefined,
-          genres: genres.length ? genres : undefined,
-          cast: film.actors || undefined,
-          director: film.directors || undefined,
-          country: film.country || undefined,
-          quality: film.quality || undefined,
-          episodes: episodes
-        })
+        data: new MultimediaItem(itemPayload)
       });
     } catch (e) {
       cb({ success: false, errorCode: "LOAD_ERROR", message: String(e && e.message ? e.message : e) });
