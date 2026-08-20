@@ -628,6 +628,32 @@
     }
     return h * 60 + m;
   }
+  // Dart often wants List<Map> not List<String> or a plain String
+  function toNameMaps(val) {
+    if (val == null || val === "") return undefined;
+    var parts;
+    if (Array.isArray(val)) {
+      parts = val;
+    } else {
+      parts = String(val).split(/,/);
+    }
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < parts.length; i++) {
+      var name = "";
+      var p = parts[i];
+      if (p == null) continue;
+      if (typeof p === "object") {
+        name = String(p.name || p.title || p.label || "").trim();
+      } else {
+        name = String(p).trim();
+      }
+      if (!name || seen[name]) continue;
+      seen[name] = true;
+      out.push({ name: name });
+    }
+    return out.length ? out : undefined;
+  }
   function stripTags(s) {
     return String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   }
@@ -825,8 +851,7 @@
           type: "movie"
         })];
       }
-      // Only pass fields SkyStream is known to accept as scalars.
-      // Extra keys (cast/genres/directors as List/Map) caused Dart cast errors.
+      // Structured metadata: List<Map{name}> (not String, not List<String>)
       var itemPayload = {
         title: String(title || ""),
         url: String(url || ""),
@@ -838,8 +863,30 @@
       };
       if (yearNum != null) itemPayload.year = yearNum;
       if (ratingNum != null) itemPayload.rating = ratingNum;
-      // duration as int minutes — omit if parser still unhappy
       if (durationMin != null) itemPayload.duration = durationMin;
+
+      var genreMaps = toNameMaps(genres.length ? genres : film.genres);
+      var castMaps = toNameMaps(film.actors);
+      var directorMaps = toNameMaps(film.directors);
+      var countryMaps = toNameMaps(film.country);
+
+      if (genreMaps) {
+        itemPayload.genres = genreMaps;
+        itemPayload.genre = genreMaps; // some hosts use singular
+      }
+      if (castMaps) {
+        itemPayload.cast = castMaps;
+        itemPayload.actors = castMaps;
+      }
+      if (directorMaps) {
+        itemPayload.directors = directorMaps;
+        itemPayload.director = directorMaps;
+      }
+      if (countryMaps) {
+        itemPayload.countries = countryMaps;
+        itemPayload.country = countryMaps;
+      }
+      if (film.quality) itemPayload.quality = String(film.quality);
 
       cb({
         success: true,
