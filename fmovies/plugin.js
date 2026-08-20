@@ -259,6 +259,18 @@
   const IMG_CDN = "https://img.cdno.my.id";
   const PLAYER = "https://netoda.tech";
   const VIDARA = "https://vidara.to";
+  const EMBED_MOVIE = [
+    "https://vidsrc.xyz/embed/movie/",
+    "https://vidsrc.to/embed/movie/",
+    "https://vidfast.pro/movie/",
+    "https://embos.top/movie/?mid="
+  ];
+  const EMBED_TV = [
+    "https://vidsrc.xyz/embed/tv/",
+    "https://vidsrc.to/embed/tv/",
+    "https://vidfast.pro/tv/",
+    "https://embos.top/movie/?mid="
+  ];
   const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
   const HEADERS = { "User-Agent": UA, Accept: "application/json, text/html, */*", "Accept-Language": "en-US,en;q=0.9" };
 
@@ -299,24 +311,34 @@
     });
   }
 
+  function safeJson(body) {
+    if (body == null) return null;
+    if (typeof body === "object") return body;
+    var s = String(body).trim();
+    if (!s || (s[0] !== "{" && s[0] !== "[")) {
+      throw new Error(s.slice(0, 40) || "empty response");
+    }
+    return JSON.parse(s);
+  }
   async function httpJson(url, opt) {
     opt = opt || {};
     var headers = Object.assign({}, HEADERS, opt.headers || {});
     var method = opt.method || "GET";
     if (typeof fetch === "function") {
       var r = await fetch(url, { method: method, headers: headers, body: opt.body || undefined });
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return await r.json();
+      var text = await r.text();
+      if (!r.ok) throw new Error("HTTP " + r.status + " " + text.slice(0, 30));
+      return safeJson(text);
     }
     if (typeof http_get === "function" && method === "GET") {
       var res = await http_get(url, headers);
       var body = res && res.body !== undefined ? res.body : res;
-      return typeof body === "string" ? JSON.parse(body) : body;
+      return safeJson(body);
     }
     if (typeof http_post === "function" && method === "POST") {
       var res2 = await http_post(url, opt.body, headers);
       var body2 = res2 && res2.body !== undefined ? res2.body : res2;
-      return typeof body2 === "string" ? JSON.parse(body2) : body2;
+      return safeJson(body2);
     }
     throw new Error("No HTTP client available");
   }
@@ -559,10 +581,33 @@
           errors.push("s" + sid + ":" + String(e && e.message ? e.message : e));
         }
       }
+      // Fallback: third-party embeds via built-in extractors (older titles often 404 on Netoda)
+      if (streams.length === 0 && typeof loadExtractor === "function") {
+        var title = info.title || info.slug || "";
+        var embeds = (info.type === "series") ? EMBED_TV : EMBED_MOVIE;
+        for (var ei = 0; ei < embeds.length; ei++) {
+          var embedUrl = embeds[ei] + mid;
+          if (info.type === "series" && embeds[ei].indexOf("/tv/") !== -1) {
+            embedUrl = embeds[ei] + mid + "/" + (info.season || "1") + "/" + ep;
+          }
+          try {
+            var extracted = await loadExtractor(embedUrl);
+            if (Array.isArray(extracted)) {
+              for (var ej = 0; ej < extracted.length; ej++) {
+                if (extracted[ej] && extracted[ej].url && !seen[extracted[ej].url]) {
+                  seen[extracted[ej].url] = true;
+                  streams.push(extracted[ej]);
+                }
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
       if (streams.length === 0) {
         return cb({
           success: false, errorCode: "NO_STREAMS",
-          message: "No streams (mid=" + mid + " ep=" + ep + "). " + (errors.length ? errors.slice(0, 3).join("; ") : "all servers empty")
+          message: "No streams (mid=" + mid + " ep=" + ep + "). Netoda has no file for this id (common for older series). " + (errors.length ? errors.slice(0, 2).join("; ") : "")
         });
       }
       cb({ success: true, data: streams });
