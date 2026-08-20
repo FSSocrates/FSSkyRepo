@@ -275,7 +275,8 @@
   const HEADERS = { "User-Agent": UA, Accept: "application/json, text/html, */*", "Accept-Language": "en-US,en;q=0.9" };
 
   function base() {
-    return ((typeof manifest !== "undefined" && manifest.baseUrl) || "https://fmoviess.org").replace(/\/$/, "");
+    // Hardcoded — no website picker in extension settings
+    return "https://fmoviess.org";
   }
   function poster(slug, size) {
     size = size || "w_200/h_300";
@@ -712,25 +713,17 @@
         var sid = serverIds[i];
         try {
           var result = await tryNetodaServer(mid, ep, sid);
-          if (result && result.url && !seen[result.url]) {
-            seen[result.url] = true;
-            // Only accept real media URLs (m3u8/mp4), never embed HTML pages
+          if (result && result.url) {
             var u = String(result.url);
-            if (u.indexOf("vidara.to/e/") !== -1 || u.indexOf("/watch/?") !== -1) {
-              continue;
-            }
+            if (u.indexOf("vidara.to/e/") !== -1 || u.indexOf("/watch/?") !== -1) continue;
             var label = result.name || "Netoda";
-            var used = false;
-            for (var si = 0; si < streams.length; si++) {
-              var sn = streams[si].name || streams[si].quality || "";
-              if (sn === label || sn.indexOf(label + " ") === 0) {
-                used = true;
-                break;
-              }
-            }
-            if (used && result.server) label = label + " " + result.server;
-            // Put source in both name and quality — UI often shows quality as the chip ("Auto" for plain HLS)
-            // SkyStream source chip uses `quality` (falls back to "Auto" for plain HLS masters)
+            // Only one Netoda and one Vidara (different CDN tokens used to create duplicates)
+            if (seen[label]) continue;
+            var pathKey = u.split("?")[0];
+            if (seen[pathKey]) continue;
+            seen[label] = true;
+            seen[pathKey] = true;
+            seen[u] = true;
             streams.push(new StreamResult({
               url: result.url,
               quality: label,
