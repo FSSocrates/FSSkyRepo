@@ -394,6 +394,66 @@
     } catch (e) { return null; }
   }
 
+  async function isPlayableM3u8(url, headers) {
+    try {
+      var body = await httpText(url); // may not send headers — best effort
+      if (body && body.indexOf("#EXTM3U") !== -1) return true;
+    } catch (e) {}
+    try {
+      if (typeof fetch === "function") {
+        var r = await fetch(url, { method: "GET", headers: headers || { "User-Agent": UA } });
+        if (!r.ok) return false;
+        var t = await r.text();
+        return t.indexOf("#EXTM3U") !== -1;
+      }
+    } catch (e2) {}
+    // If we cannot probe, still allow the URL (player may succeed)
+    return true;
+  }
+
+  async function resolveVidara(filecode) {
+    if (!filecode) return null;
+    filecode = String(filecode).replace(/[^A-Za-z0-9]/g, "");
+    if (!filecode) return null;
+    var stream = null;
+    try {
+      stream = await httpJson(VIDARA + "/api/stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Referer: VIDARA + "/e/" + filecode,
+          "User-Agent": UA,
+          Origin: VIDARA
+        },
+        body: JSON.stringify({ filecode: filecode, device: "web" })
+      });
+    } catch (e) {}
+    // Some runtimes only expose fetch
+    if ((!stream || !stream.streaming_url) && typeof fetch === "function") {
+      try {
+        var r = await fetch(VIDARA + "/api/stream", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Referer: VIDARA + "/e/" + filecode,
+            "User-Agent": UA,
+            Origin: VIDARA
+          },
+          body: JSON.stringify({ filecode: filecode, device: "web" })
+        });
+        stream = await r.json();
+      } catch (e2) {}
+    }
+    if (!stream || !stream.streaming_url) return null;
+    var su = String(stream.streaming_url);
+    if (su.indexOf(".m3u8") === -1 && su.indexOf(".mp4") === -1 && su.indexOf("/hls/") === -1) return null;
+    return {
+      url: su,
+      name: "Vidara",
+      headers: { Referer: VIDARA + "/", "User-Agent": UA, Origin: VIDARA }
+    };
+  }
+
   async function tryNetodaServer(mid, ep, server) {
     var path = buildGetPath(mid, ep, server);
     var json = await httpJson(PLAYER + "/get/" + path, {
@@ -402,48 +462,47 @@
     if (!json || json.code !== 200 || !json.info) return null;
 
     if (json.mode === "direct") {
-      return {
-        url: PLAYER + "/hls/" + json.info + "/master.m3u8",
-        name: "Netoda",
-        server: String(server),
-        headers: { Referer: PLAYER + "/", "User-Agent": UA }
-      };
+      var directUrl = PLAYER + "/hls/" + json.info + "/master.m3u8";
+      var headers = { Referer: PLAYER + "/", "User-Agent": UA };
+      // Netoda direct often 502 — only keep if playlist is real
+      var ok = false;
+      try {
+        if (typeof fetch === "function") {
+          var hr = await fetch(directUrl, { headers: headers });
+          if (hr.ok) {
+            var ht = await hr.text();
+            ok = ht.indexOf("#EXTM3U") !== -1;
+          }
+        } else {
+          ok = true; // cannot probe
+        }
+      } catch (e) { ok = false; }
+      if (ok) {
+        return { url: directUrl, name: "Netoda", server: String(server), headers: headers };
+      }
+      return null;
     }
+
     if (json.mode === "embed") {
       var decoded = decryptPlayerBlob(json.info);
-      if (decoded) {
-        var m = decoded.match(/vidara\.to\/e\/([A-Za-z0-9]+)/);
-        if (m) {
-          var filecode = m[1];
-          try {
-            var stream = await httpJson(VIDARA + "/api/stream", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Referer: VIDARA + "/e/" + filecode,
-                "User-Agent": UA
-              },
-              body: JSON.stringify({ filecode: filecode, device: "web" })
-            });
-            if (stream && stream.streaming_url) {
-              var su = String(stream.streaming_url);
-              // Must be direct media, not an embed page
-              if (su.indexOf(".m3u8") !== -1 || su.indexOf(".mp4") !== -1 || su.indexOf("/hls/") !== -1) {
-                return {
-                  url: su,
-                  name: "Vidara",
-                  server: String(server),
-                  headers: {
-                    Referer: VIDARA + "/",
-                    "User-Agent": UA,
-                    Origin: VIDARA
-                  }
-                };
-              }
-            }
-          } catch (e) {}
-        }
+      if (!decoded) return null;
+      decoded = String(decoded).trim();
+
+      // 1) Full vidara URL
+      var m = decoded.match(/vidara\.to\/e\/([A-Za-z0-9]+)/i);
+      if (m) {
+        var v = await resolveVidara(m[1]);
+        if (v) { v.server = String(server); return v; }
       }
+
+      // 2) Bare filecode
+      if (/^[A-Za-z0-9]{8,20}$/.test(decoded)) {
+        var v2 = await resolveVidara(decoded);
+        if (v2) { v2.server = String(server); return v2; }
+      }
+
+      // 3) tv/{tmdb}/{season}-{episode}-{ts} — no direct stream here; skip
+      // (handled only when Vidara is present on another server)
     }
     return null;
   }
