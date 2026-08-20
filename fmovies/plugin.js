@@ -591,24 +591,131 @@
     }
   }
 
+
+  function stripTags(s) {
+    return String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function metaField(html, label) {
+    // <strong>Label: </strong>value</p>
+    var re = new RegExp("<strong>\\s*" + label + "\\s*:?\\s*</strong>\\s*([\\s\\S]*?)</p>", "i");
+    var m = html.match(re);
+    if (!m) return "";
+    return stripTags(m[1]).replace(/\s*,\s*/g, ", ").trim();
+  }
+  function parseFilmMeta(html) {
+    var meta = {
+      title: "",
+      description: "",
+      year: null,
+      rating: null,
+      duration: "",
+      quality: "",
+      country: "",
+      actors: "",
+      directors: "",
+      genres: [],
+      episodeCount: null
+    };
+    var ogTitle = html.match(/property=["']og:title["'][^>]*content=["']([^"']+)/i)
+      || html.match(/content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+    if (ogTitle) {
+      meta.title = ogTitle[1]
+        .replace(/^Watch\s+/i, "")
+        .replace(/\s+Full Movie on Fmovies.*/i, "")
+        .replace(/\s+on\s+Fmovies.*/i, "")
+        .trim();
+    }
+    var ogDesc = html.match(/property=["']og:description["'][^>]*content=["']([^"']+)/i)
+      || html.match(/content=["']([^"']+)["'][^>]*property=["']og:description["']/i);
+    if (ogDesc) meta.description = ogDesc[1].trim();
+    if (!meta.description) {
+      var md = html.match(/name=["']description["'][^>]*content=["']([^"']+)/i);
+      if (md) meta.description = md[1].trim();
+    }
+    var ogTime = html.match(/property=["']og:updated_time["'][^>]*content=["']([^"']+)/i);
+    if (ogTime) {
+      var y = ogTime[1].match(/(19|20)\d{2}/);
+      if (y) meta.year = Number(y[0]);
+    }
+    meta.actors = metaField(html, "Actor");
+    meta.directors = metaField(html, "Director");
+    meta.country = metaField(html, "Country");
+    meta.duration = metaField(html, "Duration");
+    meta.quality = metaField(html, "Quality");
+    var epCount = metaField(html, "Episode");
+    if (epCount) {
+      var en = epCount.match(/(\d+)/);
+      if (en) meta.episodeCount = Number(en[1]);
+    }
+    // IMDb score in page (e.g. ratingValue 9.5 or badge text)
+    var rv = html.match(/ratingValue["']?\s*[:=]\s*["']?([\d.]+)/i);
+    if (rv) meta.rating = Number(rv[1]);
+    if (meta.rating == null) {
+      var imdbLine = metaField(html, "IMDb") || metaField(html, "IMDB");
+      if (imdbLine) {
+        var ir = imdbLine.match(/([\d.]+)/);
+        if (ir) meta.rating = Number(ir[1]);
+      }
+    }
+    // Genres: links inside the info card near Genre label
+    var genreBlock = html.match(/<strong>\s*Genre\s*:?\s*<\/strong>([\s\S]*?)<\/p>/i);
+    if (genreBlock) {
+      var gRe = /\/genre\/([^/"']+)\//gi;
+      var gm;
+      var seen = {};
+      while ((gm = gRe.exec(genreBlock[1])) !== null) {
+        var g = gm[1].replace(/-/g, " ");
+        g = g.charAt(0).toUpperCase() + g.slice(1);
+        if (!seen[g]) {
+          seen[g] = true;
+          meta.genres.push(g);
+        }
+      }
+      if (meta.genres.length === 0) {
+        var plain = stripTags(genreBlock[1]);
+        if (plain) meta.genres = plain.split(/,/).map(function (x) { return x.trim(); }).filter(Boolean);
+      }
+    }
+    return meta;
+  }
+  function buildDescription(meta) {
+    var parts = [];
+    if (meta.description) parts.push(meta.description);
+    var facts = [];
+    if (meta.rating != null) facts.push("IMDb " + meta.rating);
+    if (meta.quality) facts.push(meta.quality);
+    if (meta.duration) facts.push(meta.duration);
+    if (meta.country) facts.push(meta.country);
+    if (meta.genres && meta.genres.length) facts.push(meta.genres.join(", "));
+    if (meta.directors) facts.push("Director: " + meta.directors);
+    if (meta.actors) facts.push("Cast: " + meta.actors);
+    if (meta.episodeCount) facts.push(meta.episodeCount + " episodes");
+    if (facts.length) parts.push(facts.join(" · "));
+    return parts.join("\n\n");
+  }
+
   async function load(url, cb) {
     try {
       var info = parseUrl(url);
       var slug = info.slug;
       if (!slug) return cb({ success: false, errorCode: "NO_SLUG", message: "Missing title slug" });
       var htmlStr = await httpText(base() + "/film/" + slug + "/");
-      var title = info.title || slug;
-      var titleMatch = htmlStr.match(/<title[^>]*>([^<]+)/i);
-      if (titleMatch) title = titleMatch[1].replace(/^Watch\s+/i, "").replace(/\s+on\s+Fmovies.*/i, "").replace(/\s*\|\s*.*$/, "").trim();
+      var film = parseFilmMeta(htmlStr);
+      var title = film.title || info.title || slug;
+      if (!film.title) {
+        var titleMatch = htmlStr.match(/<title[^>]*>([^<]+)/i);
+        if (titleMatch) title = titleMatch[1].replace(/^Watch\s+/i, "").replace(/\s+on\s+Fmovies.*/i, "").replace(/\s*\|\s*.*$/, "").trim();
+      }
       var mid = info.mid;
       var midMatch = htmlStr.match(/data-mid\s*=\s*["']?(\d+)/i);
       if (midMatch) mid = midMatch[1];
       if (!mid) { var mm = String(slug).match(/-(\d+)$/); if (mm) mid = mm[1]; }
-      var description = "";
-      var descMatch = htmlStr.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)/i);
-      if (descMatch) description = descMatch[1];
-      var year = info.year;
+      var description = buildDescription(film);
+      var year = film.year || info.year;
       if (!year) { var y2 = htmlStr.match(/\b(19|20)\d{2}\b/); if (y2) year = Number(y2[0]); }
+      var rating = film.rating;
+      var duration = film.duration;
+      var genres = film.genres || [];
       var servers = [];
       var srvRe = /id=["']?srv-(\d+)["']?[^>]*>([^<]*)</gi;
       var sm;
@@ -677,8 +784,21 @@
       cb({
         success: true,
         data: new MultimediaItem({
-          title: title, url: url, posterUrl: poster(slug), bannerUrl: cover(slug),
-          type: isSeries ? "series" : "movie", year: year, description: description, episodes: episodes
+          title: title,
+          url: url,
+          posterUrl: poster(slug),
+          bannerUrl: cover(slug),
+          type: isSeries ? "series" : "movie",
+          year: year,
+          description: description,
+          rating: rating || undefined,
+          duration: duration || undefined,
+          genres: genres.length ? genres : undefined,
+          cast: film.actors || undefined,
+          director: film.directors || undefined,
+          country: film.country || undefined,
+          quality: film.quality || undefined,
+          episodes: episodes
         })
       });
     } catch (e) {
