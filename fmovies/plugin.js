@@ -324,36 +324,60 @@
     opt = opt || {};
     var headers = Object.assign({}, HEADERS, opt.headers || {});
     var method = opt.method || "GET";
+    // fetch
     if (typeof fetch === "function") {
-      var r = await fetch(url, { method: method, headers: headers, body: opt.body || undefined });
-      var text = await r.text();
-      if (!r.ok) throw new Error("HTTP " + r.status + " " + text.slice(0, 30));
-      return safeJson(text);
+      try {
+        var r = await fetch(url, { method: method, headers: headers, body: opt.body || undefined });
+        var text = await r.text();
+        return safeJson(text);
+      } catch (e) {}
     }
+    // GET via http_get
     if (typeof http_get === "function" && method === "GET") {
-      var res = await http_get(url, headers);
-      var body = res && res.body !== undefined ? res.body : res;
-      return safeJson(body);
+      try {
+        var res = await http_get(url, headers);
+        var body = res && res.body !== undefined ? res.body : res;
+        return safeJson(body);
+      } catch (e2) {}
     }
+    // POST via http_post — try several argument shapes
     if (typeof http_post === "function" && method === "POST") {
-      var res2 = await http_post(url, opt.body, headers);
-      var body2 = res2 && res2.body !== undefined ? res2.body : res2;
-      return safeJson(body2);
+      var attempts = [
+        function () { return http_post(url, opt.body, headers); },
+        function () { return http_post(url, headers, opt.body); },
+        function () {
+          var obj = opt.body;
+          try { if (typeof obj === "string") obj = JSON.parse(obj); } catch (e) {}
+          return http_post(url, obj, headers);
+        }
+      ];
+      for (var ai = 0; ai < attempts.length; ai++) {
+        try {
+          var res2 = await attempts[ai]();
+          var body2 = res2 && res2.body !== undefined ? res2.body : res2;
+          var parsed = safeJson(body2);
+          if (parsed) return parsed;
+        } catch (e3) {}
+      }
     }
-    throw new Error("No HTTP client available");
+    return null;
   }
-  async function httpText(url) {
+  async function httpText(url, headers) {
+    headers = Object.assign({}, HEADERS, headers || {});
     if (typeof fetch === "function") {
-      var r = await fetch(url, { headers: HEADERS });
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return await r.text();
+      try {
+        var r = await fetch(url, { headers: headers });
+        return await r.text();
+      } catch (e) {}
     }
     if (typeof http_get === "function") {
-      var res = await http_get(url, HEADERS);
-      var body = res && res.body !== undefined ? res.body : res;
-      return typeof body === "string" ? body : String(body || "");
+      try {
+        var res = await http_get(url, headers);
+        var body = res && res.body !== undefined ? res.body : res;
+        return typeof body === "string" ? body : String(body || "");
+      } catch (e2) {}
     }
-    throw new Error("No HTTP client available");
+    return null;
   }
 
   function bytesToHex(bytes) {
@@ -394,93 +418,80 @@
     } catch (e) { return null; }
   }
 
-  async function isPlayableM3u8(url, headers) {
-    try {
-      var body = await httpText(url); // may not send headers — best effort
-      if (body && body.indexOf("#EXTM3U") !== -1) return true;
-    } catch (e) {}
-    try {
-      if (typeof fetch === "function") {
-        var r = await fetch(url, { method: "GET", headers: headers || { "User-Agent": UA } });
-        if (!r.ok) return false;
-        var t = await r.text();
-        return t.indexOf("#EXTM3U") !== -1;
-      }
-    } catch (e2) {}
-    // If we cannot probe, still allow the URL (player may succeed)
-    return true;
-  }
-
   async function resolveVidara(filecode) {
     if (!filecode) return null;
     filecode = String(filecode).replace(/[^A-Za-z0-9]/g, "");
-    if (!filecode) return null;
+    if (filecode.length < 6) return null;
+
+    var endpoint = VIDARA + "/api/stream";
+    var postHeaders = {
+      "Content-Type": "application/json",
+      Accept: "application/json, */*",
+      Referer: VIDARA + "/e/" + filecode,
+      Origin: VIDARA,
+      "User-Agent": UA
+    };
+    var bodyStr = JSON.stringify({ filecode: filecode, device: "web" });
     var stream = null;
+
+    // A) httpJson helper
     try {
-      stream = await httpJson(VIDARA + "/api/stream", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Referer: VIDARA + "/e/" + filecode,
-          "User-Agent": UA,
-          Origin: VIDARA
-        },
-        body: JSON.stringify({ filecode: filecode, device: "web" })
-      });
+      stream = await httpJson(endpoint, { method: "POST", headers: postHeaders, body: bodyStr });
     } catch (e) {}
-    // Some runtimes only expose fetch
+
+    // B) raw fetch
     if ((!stream || !stream.streaming_url) && typeof fetch === "function") {
       try {
-        var r = await fetch(VIDARA + "/api/stream", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Referer: VIDARA + "/e/" + filecode,
-            "User-Agent": UA,
-            Origin: VIDARA
-          },
-          body: JSON.stringify({ filecode: filecode, device: "web" })
-        });
-        stream = await r.json();
+        var r = await fetch(endpoint, { method: "POST", headers: postHeaders, body: bodyStr });
+        stream = safeJson(await r.text());
       } catch (e2) {}
     }
+
+    // C) http_post variants
+    if ((!stream || !stream.streaming_url) && typeof http_post === "function") {
+      var variants = [
+        function () { return http_post(endpoint, bodyStr, postHeaders); },
+        function () { return http_post(endpoint, postHeaders, bodyStr); },
+        function () { return http_post(endpoint, { filecode: filecode, device: "web" }, postHeaders); }
+      ];
+      for (var vi = 0; vi < variants.length; vi++) {
+        try {
+          var res = await variants[vi]();
+          var b = res && res.body !== undefined ? res.body : res;
+          stream = safeJson(b);
+          if (stream && stream.streaming_url) break;
+        } catch (e3) {}
+      }
+    }
+
     if (!stream || !stream.streaming_url) return null;
     var su = String(stream.streaming_url);
+    if (su.indexOf("http") !== 0) return null;
     if (su.indexOf(".m3u8") === -1 && su.indexOf(".mp4") === -1 && su.indexOf("/hls/") === -1) return null;
     return {
       url: su,
       name: "Vidara",
-      headers: { Referer: VIDARA + "/", "User-Agent": UA, Origin: VIDARA }
+      headers: { Referer: VIDARA + "/", Origin: VIDARA, "User-Agent": UA }
     };
   }
 
   async function tryNetodaServer(mid, ep, server) {
     var path = buildGetPath(mid, ep, server);
-    var json = await httpJson(PLAYER + "/get/" + path, {
-      headers: { Referer: PLAYER + "/watch/?v" + server + ep, "User-Agent": UA, Accept: "*/*" }
-    });
+    var json = null;
+    try {
+      json = await httpJson(PLAYER + "/get/" + path, {
+        headers: { Referer: PLAYER + "/watch/?v" + server + ep, "User-Agent": UA, Accept: "*/*" }
+      });
+    } catch (e) { return null; }
     if (!json || json.code !== 200 || !json.info) return null;
 
     if (json.mode === "direct") {
       var directUrl = PLAYER + "/hls/" + json.info + "/master.m3u8";
       var headers = { Referer: PLAYER + "/", "User-Agent": UA };
-      // Netoda direct often 502 — only keep if playlist is real
-      var ok = false;
-      try {
-        if (typeof fetch === "function") {
-          var hr = await fetch(directUrl, { headers: headers });
-          if (hr.ok) {
-            var ht = await hr.text();
-            ok = ht.indexOf("#EXTM3U") !== -1;
-          }
-        } else {
-          ok = true; // cannot probe
-        }
-      } catch (e) { ok = false; }
-      if (ok) {
-        return { url: directUrl, name: "Netoda", server: String(server), headers: headers };
-      }
-      return null;
+      // Probe — do NOT return dead Netoda (often 502)
+      var body = await httpText(directUrl, headers);
+      if (!body || body.indexOf("#EXTM3U") === -1) return null;
+      return { url: directUrl, name: "Netoda", server: String(server), headers: headers };
     }
 
     if (json.mode === "embed") {
@@ -488,21 +499,18 @@
       if (!decoded) return null;
       decoded = String(decoded).trim();
 
-      // 1) Full vidara URL
+      var filecode = null;
       var m = decoded.match(/vidara\.to\/e\/([A-Za-z0-9]+)/i);
-      if (m) {
-        var v = await resolveVidara(m[1]);
-        if (v) { v.server = String(server); return v; }
-      }
+      if (m) filecode = m[1];
+      else if (/^[A-Za-z0-9]{8,20}$/.test(decoded)) filecode = decoded;
 
-      // 2) Bare filecode
-      if (/^[A-Za-z0-9]{8,20}$/.test(decoded)) {
-        var v2 = await resolveVidara(decoded);
-        if (v2) { v2.server = String(server); return v2; }
+      if (filecode) {
+        var v = await resolveVidara(filecode);
+        if (v) {
+          v.server = String(server);
+          return v;
+        }
       }
-
-      // 3) tv/{tmdb}/{season}-{episode}-{ts} — no direct stream here; skip
-      // (handled only when Vidara is present on another server)
     }
     return null;
   }
@@ -747,6 +755,12 @@
           errors.push("s" + sid + ":" + String(e && e.message ? e.message : e));
         }
       }
+      // Prefer Vidara entries first in the source list
+      streams.sort(function (a, b) {
+        var an = (a.name || a.quality || "").indexOf("Vidara") === 0 ? 0 : 1;
+        var bn = (b.name || b.quality || "").indexOf("Vidara") === 0 ? 0 : 1;
+        return an - bn;
+      });
       // Fallback: third-party embeds via built-in extractors (older titles often 404 on Netoda)
       if (streams.length === 0 && typeof loadExtractor === "function") {
         var title = info.title || info.slug || "";
