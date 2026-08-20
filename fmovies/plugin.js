@@ -577,38 +577,61 @@
       .trim();
   }
 
-  // TVMaze (free, no key) — real episode titles, summaries, air dates
-  async function fetchTvMazeEpisodes(showTitle, seasonNum) {
+  // TVMaze (free, no key) — show summary, cast photos, episode titles
+  async function fetchTvMazeShow(showTitle) {
     try {
       var q = encodeURIComponent(seriesBaseTitle(showTitle));
-      if (!q) return {};
+      if (!q) return null;
       var show = await httpJson(
-        "https://api.tvmaze.com/singlesearch/shows?q=" + q + "&embed=episodes"
+        "https://api.tvmaze.com/singlesearch/shows?q=" + q + "&embed=episodes,cast"
       );
-      if (!show || !show._embedded || !show._embedded.episodes) return {};
-      var map = {};
-      var list = show._embedded.episodes;
-      for (var i = 0; i < list.length; i++) {
-        var e = list[i];
-        if (Number(e.season) !== Number(seasonNum)) continue;
+      if (!show || !show.id) return null;
+      var summary = show.summary
+        ? String(show.summary).replace(/<[^>]+>/g, "").trim()
+        : "";
+      var cast = [];
+      var castList = (show._embedded && show._embedded.cast) || [];
+      for (var i = 0; i < castList.length; i++) {
+        var person = castList[i].person || {};
+        var name = person.name || "";
+        if (!name) continue;
+        var img = person.image
+          ? (person.image.medium || person.image.original || null)
+          : null;
+        cast.push({ name: name, image: img, posterUrl: img, photo: img });
+      }
+      var episodesBySeason = {};
+      var list = (show._embedded && show._embedded.episodes) || [];
+      for (var j = 0; j < list.length; j++) {
+        var e = list[j];
+        var s = Number(e.season) || 0;
         var num = Number(e.number) || 0;
-        var summary = e.summary
-          ? String(e.summary).replace(/<[^>]+>/g, "").trim()
-          : "";
-        map[num] = {
+        if (!episodesBySeason[s]) episodesBySeason[s] = {};
+        var esum = e.summary ? String(e.summary).replace(/<[^>]+>/g, "").trim() : "";
+        episodesBySeason[s][num] = {
           name: e.name || ("Episode " + num),
-          summary: summary,
+          summary: esum,
           runtime: e.runtime || null,
           airDate: e.airdate || null,
           rating: e.rating && e.rating.average ? e.rating.average : null,
-          image:
-            (e.image && (e.image.medium || e.image.original)) || null
+          image: (e.image && (e.image.medium || e.image.original)) || null
         };
       }
-      return map;
+      return {
+        summary: summary,
+        cast: cast,
+        rating: show.rating && show.rating.average ? show.rating.average : null,
+        genres: show.genres || [],
+        episodesBySeason: episodesBySeason
+      };
     } catch (e) {
-      return {};
+      return null;
     }
+  }
+  async function fetchTvMazeEpisodes(showTitle, seasonNum) {
+    var show = await fetchTvMazeShow(showTitle);
+    if (!show || !show.episodesBySeason) return {};
+    return show.episodesBySeason[Number(seasonNum)] || {};
   }
 
 
@@ -812,8 +835,33 @@
         if (smTitle) seasonNum = parseInt(smTitle[1], 10) || 1;
       }
 
+      // Enrich description + cast from TVMaze (full plot + photos)
+      var tvMeta = null;
+      try {
+        tvMeta = await fetchTvMazeShow(title);
+      } catch (eTv) {}
+      if (tvMeta) {
+        if (tvMeta.summary && (
+          !film.description ||
+          film.description.length < tvMeta.summary.length ||
+          /…|\.\.\.\s*$/.test(film.description)
+        )) {
+          film.description = tvMeta.summary;
+          description = buildDescription(film);
+        }
+        if (tvMeta.rating != null && ratingNum == null) {
+          ratingNum = Number(tvMeta.rating);
+        }
+        if ((!genres || !genres.length) && tvMeta.genres && tvMeta.genres.length) {
+          genres = tvMeta.genres.slice();
+        }
+      }
+
       if (isSeries && eps.length > 0) {
-        var metaMap = await fetchTvMazeEpisodes(title, seasonNum);
+        var metaMap = (tvMeta && tvMeta.episodesBySeason && tvMeta.episodesBySeason[Number(seasonNum)]) || {};
+        if (!metaMap || !Object.keys(metaMap).length) {
+          metaMap = await fetchTvMazeEpisodes(title, seasonNum);
+        }
         episodes = eps.map(function (ep) {
           var epNum = parseInt(ep.id, 10) || 0;
           var meta = metaMap[epNum] || {};
@@ -866,7 +914,21 @@
       if (durationMin != null) itemPayload.duration = durationMin;
 
       var genreMaps = toNameMaps(genres.length ? genres : film.genres);
-      var castMaps = toNameMaps(film.actors);
+      var castMaps = null;
+      if (tvMeta && tvMeta.cast && tvMeta.cast.length) {
+        castMaps = tvMeta.cast.map(function (c) {
+          var m = { name: c.name };
+          if (c.image) {
+            m.image = c.image;
+            m.posterUrl = c.image;
+            m.photo = c.image;
+            m.profileUrl = c.image;
+          }
+          return m;
+        });
+      } else {
+        castMaps = toNameMaps(film.actors);
+      }
       var directorMaps = toNameMaps(film.directors);
       var countryMaps = toNameMaps(film.country);
 
