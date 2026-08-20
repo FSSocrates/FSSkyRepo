@@ -404,7 +404,8 @@
     if (json.mode === "direct") {
       return {
         url: PLAYER + "/hls/" + json.info + "/master.m3u8",
-        name: "Server " + server + " (Direct)",
+        name: "Netoda",
+        server: String(server),
         headers: { Referer: PLAYER + "/", "User-Agent": UA }
       };
     }
@@ -427,7 +428,8 @@
             if (stream && stream.streaming_url) {
               return {
                 url: stream.streaming_url,
-                name: "Server " + server + " (Vidara)",
+                name: "Vidara",
+                server: String(server),
                 headers: { Referer: VIDARA + "/", "User-Agent": UA }
               };
             }
@@ -650,9 +652,19 @@
           var result = await tryNetodaServer(mid, ep, sid);
           if (result && result.url && !seen[result.url]) {
             seen[result.url] = true;
+            var label = result.name || "Netoda";
+            // If we already have this label, append server id
+            var used = false;
+            for (var si = 0; si < streams.length; si++) {
+              if (streams[si].name === label || (streams[si].name && streams[si].name.indexOf(label + " ") === 0)) {
+                used = true;
+                break;
+              }
+            }
+            if (used && result.server) label = label + " " + result.server;
             streams.push(new StreamResult({
               url: result.url, quality: "HD",
-              name: result.name || ("Server " + sid),
+              name: label,
               headers: result.headers || { Referer: PLAYER + "/", "User-Agent": UA }
             }));
           }
