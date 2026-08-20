@@ -422,7 +422,6 @@
     if (!filecode) return null;
     filecode = String(filecode).replace(/[^A-Za-z0-9]/g, "");
     if (filecode.length < 6) return null;
-
     var endpoint = VIDARA + "/api/stream";
     var postHeaders = {
       "Content-Type": "application/json",
@@ -433,37 +432,22 @@
     };
     var bodyStr = JSON.stringify({ filecode: filecode, device: "web" });
     var stream = null;
-
-    // A) httpJson helper
     try {
       stream = await httpJson(endpoint, { method: "POST", headers: postHeaders, body: bodyStr });
     } catch (e) {}
-
-    // B) raw fetch
     if ((!stream || !stream.streaming_url) && typeof fetch === "function") {
       try {
         var r = await fetch(endpoint, { method: "POST", headers: postHeaders, body: bodyStr });
         stream = safeJson(await r.text());
       } catch (e2) {}
     }
-
-    // C) http_post variants
     if ((!stream || !stream.streaming_url) && typeof http_post === "function") {
-      var variants = [
-        function () { return http_post(endpoint, bodyStr, postHeaders); },
-        function () { return http_post(endpoint, postHeaders, bodyStr); },
-        function () { return http_post(endpoint, { filecode: filecode, device: "web" }, postHeaders); }
-      ];
-      for (var vi = 0; vi < variants.length; vi++) {
-        try {
-          var res = await variants[vi]();
-          var b = res && res.body !== undefined ? res.body : res;
-          stream = safeJson(b);
-          if (stream && stream.streaming_url) break;
-        } catch (e3) {}
-      }
+      try {
+        var res = await http_post(endpoint, bodyStr, postHeaders);
+        var b = res && res.body !== undefined ? res.body : res;
+        stream = safeJson(b);
+      } catch (e3) {}
     }
-
     if (!stream || !stream.streaming_url) return null;
     var su = String(stream.streaming_url);
     if (su.indexOf("http") !== 0) return null;
@@ -485,31 +469,34 @@
     } catch (e) { return null; }
     if (!json || json.code !== 200 || !json.info) return null;
 
+    // Netoda direct (preferred when healthy)
     if (json.mode === "direct") {
       var directUrl = PLAYER + "/hls/" + json.info + "/master.m3u8";
       var headers = { Referer: PLAYER + "/", "User-Agent": UA };
-      // Probe — do NOT return dead Netoda (often 502)
       var body = await httpText(directUrl, headers);
       if (!body || body.indexOf("#EXTM3U") === -1) return null;
-      return { url: directUrl, name: "Netoda", server: String(server), headers: headers };
+      return {
+        url: directUrl,
+        name: "Netoda",
+        server: String(server),
+        headers: headers
+      };
     }
 
+    // Vidara embed (works for some titles; sometimes a placeholder reel)
     if (json.mode === "embed") {
       var decoded = decryptPlayerBlob(json.info);
       if (!decoded) return null;
       decoded = String(decoded).trim();
-
       var filecode = null;
       var m = decoded.match(/vidara\.to\/e\/([A-Za-z0-9]+)/i);
       if (m) filecode = m[1];
       else if (/^[A-Za-z0-9]{8,20}$/.test(decoded)) filecode = decoded;
-
-      if (filecode) {
-        var v = await resolveVidara(filecode);
-        if (v) {
-          v.server = String(server);
-          return v;
-        }
+      if (!filecode) return null;
+      var v = await resolveVidara(filecode);
+      if (v) {
+        v.server = String(server);
+        return v;
       }
     }
     return null;
@@ -743,10 +730,14 @@
             }
             if (used && result.server) label = label + " " + result.server;
             // Put source in both name and quality — UI often shows quality as the chip ("Auto" for plain HLS)
+            // SkyStream source chip uses `quality` (falls back to "Auto" for plain HLS masters)
             streams.push(new StreamResult({
               url: result.url,
-              name: label,
               quality: label,
+              name: label,
+              title: label,
+              server: label,
+              source: label,
               sourceName: label,
               headers: result.headers || { Referer: PLAYER + "/", "User-Agent": UA }
             }));
@@ -755,11 +746,15 @@
           errors.push("s" + sid + ":" + String(e && e.message ? e.message : e));
         }
       }
-      // Prefer Vidara entries first in the source list
+      // Netoda first (more faithful), Vidara second
       streams.sort(function (a, b) {
-        var an = (a.name || a.quality || "").indexOf("Vidara") === 0 ? 0 : 1;
-        var bn = (b.name || b.quality || "").indexOf("Vidara") === 0 ? 0 : 1;
-        return an - bn;
+        function rank(s) {
+          var n = String(s.quality || s.name || "");
+          if (n.indexOf("Netoda") === 0) return 0;
+          if (n.indexOf("Vidara") === 0) return 1;
+          return 2;
+        }
+        return rank(a) - rank(b);
       });
       // Fallback: third-party embeds via built-in extractors (older titles often 404 on Netoda)
       if (streams.length === 0 && typeof loadExtractor === "function") {
