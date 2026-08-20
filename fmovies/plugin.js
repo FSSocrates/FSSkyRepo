@@ -578,10 +578,8 @@
           var epNum = parseInt(ep.id, 10) || 0;
           var meta = metaMap[epNum] || {};
           var epName = meta.name || ep.title || ("Episode " + epNum);
-          var sPad = seasonNum < 10 ? "0" + seasonNum : String(seasonNum);
-          var ePad = epNum < 10 ? "0" + epNum : String(epNum);
           var payload = {
-            name: "S" + sPad + "E" + ePad + " - " + epName,
+            name: epName,
             title: epName,
             url: itemUrl(slug, mid, "series", {
               ep: String(ep.id),
