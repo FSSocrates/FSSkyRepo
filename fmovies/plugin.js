@@ -519,13 +519,41 @@
       var dataMode = modeMatch ? modeMatch[1] : null;
       var isSeries = dataMode === "tv" || eps.length > 1 || /season/i.test(title) || info.type === "series";
       var episodes;
+      // Season number from slug (season-5) or title ("Season 5")
+      var seasonNum = 1;
+      var smSlug = String(slug).match(/season[_-]?(\d+)/i);
+      if (smSlug) seasonNum = parseInt(smSlug[1], 10) || 1;
+      else {
+        var smTitle = String(title).match(/season\s*(\d+)/i);
+        if (smTitle) seasonNum = parseInt(smTitle[1], 10) || 1;
+      }
+
       if (isSeries && eps.length > 0) {
         episodes = eps.map(function (ep) {
-          return new MultimediaItem({
-            title: ep.title,
-            url: itemUrl(slug, mid, "series", { ep: ep.id, servers: servers, title: title, year: year }),
-            posterUrl: poster(slug), type: "episode"
-          });
+          var epNum = parseInt(ep.id, 10) || 0;
+          var epName = ep.title || ("Episode " + epNum);
+          var sPad = seasonNum < 10 ? "0" + seasonNum : String(seasonNum);
+          var ePad = epNum < 10 ? "0" + epNum : String(epNum);
+          // Prefer Episode class when available; fall back to MultimediaItem
+          var payload = {
+            name: "S" + sPad + "E" + ePad + " - " + epName,
+            title: epName,
+            url: itemUrl(slug, mid, "series", {
+              ep: String(ep.id),
+              season: seasonNum,
+              servers: servers,
+              title: title,
+              year: year
+            }),
+            season: seasonNum,
+            episode: epNum,
+            posterUrl: poster(slug),
+            type: "episode"
+          };
+          if (typeof Episode === "function") {
+            return new Episode(payload);
+          }
+          return new MultimediaItem(payload);
         });
       } else {
         episodes = [new MultimediaItem({
