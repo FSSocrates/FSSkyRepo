@@ -2,8 +2,8 @@
   {
     "packageName": "io.fsskyrepo.fmovies",
     "name": "FMovies",
-    "version": 6,
-    "description": "FMovies — browse, search, Netoda HLS (pure JS crypto)",
+    "version": 7,
+    "description": "FMovies — Netoda HLS + embed fallbacks (pure JS crypto)",
     "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
     "baseUrl": "https://fmoviess.org",
     "authors": [
