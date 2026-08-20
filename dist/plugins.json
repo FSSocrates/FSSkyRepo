@@ -2,7 +2,7 @@
   {
     "packageName": "io.fsskyrepo.fmovies",
     "name": "FMovies",
-    "version": 10,
+    "version": 11,
     "description": "FMovies — real episode titles via TVMaze + Netoda HLS",
     "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
     "baseUrl": "https://fmoviess.org",
