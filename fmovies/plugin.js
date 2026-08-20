@@ -426,12 +426,20 @@
               body: JSON.stringify({ filecode: filecode, device: "web" })
             });
             if (stream && stream.streaming_url) {
-              return {
-                url: stream.streaming_url,
-                name: "Vidara",
-                server: String(server),
-                headers: { Referer: VIDARA + "/", "User-Agent": UA }
-              };
+              var su = String(stream.streaming_url);
+              // Must be direct media, not an embed page
+              if (su.indexOf(".m3u8") !== -1 || su.indexOf(".mp4") !== -1 || su.indexOf("/hls/") !== -1) {
+                return {
+                  url: su,
+                  name: "Vidara",
+                  server: String(server),
+                  headers: {
+                    Referer: VIDARA + "/",
+                    "User-Agent": UA,
+                    Origin: VIDARA
+                  }
+                };
+              }
             }
           } catch (e) {}
         }
@@ -652,19 +660,27 @@
           var result = await tryNetodaServer(mid, ep, sid);
           if (result && result.url && !seen[result.url]) {
             seen[result.url] = true;
+            // Only accept real media URLs (m3u8/mp4), never embed HTML pages
+            var u = String(result.url);
+            if (u.indexOf("vidara.to/e/") !== -1 || u.indexOf("/watch/?") !== -1) {
+              continue;
+            }
             var label = result.name || "Netoda";
-            // If we already have this label, append server id
             var used = false;
             for (var si = 0; si < streams.length; si++) {
-              if (streams[si].name === label || (streams[si].name && streams[si].name.indexOf(label + " ") === 0)) {
+              var sn = streams[si].name || streams[si].quality || "";
+              if (sn === label || sn.indexOf(label + " ") === 0) {
                 used = true;
                 break;
               }
             }
             if (used && result.server) label = label + " " + result.server;
+            // Put source in both name and quality — UI often shows quality as the chip ("Auto" for plain HLS)
             streams.push(new StreamResult({
-              url: result.url, quality: "HD",
+              url: result.url,
               name: label,
+              quality: label,
+              sourceName: label,
               headers: result.headers || { Referer: PLAYER + "/", "User-Agent": UA }
             }));
           }
