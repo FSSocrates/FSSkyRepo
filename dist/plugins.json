@@ -2,7 +2,7 @@
   {
     "packageName": "io.fsskyrepo.fmovies",
     "name": "FMovies",
-    "version": 14,
+    "version": 15,
     "description": "FMovies — Netoda + Vidara (validated m3u8)",
     "icon": "https://fmoviess.org/icon/apple-icon-180x180.png",
     "baseUrl": "https://fmoviess.org",
