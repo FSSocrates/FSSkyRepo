@@ -286,8 +286,28 @@
     return IMG_CDN + "/cover/w_1280/h_720/" + slug + ".jpg";
   }
   function itemUrl(slug, mid, type, extra) {
-    var o = { slug: slug, mid: mid || null, type: type || "movie" };
-    if (extra) for (var k in extra) o[k] = extra[k];
+    var o = {
+      slug: String(slug || ""),
+      mid: mid != null && mid !== "" ? String(mid) : null,
+      type: type || "movie"
+    };
+    if (extra) {
+      for (var k in extra) {
+        if (!Object.prototype.hasOwnProperty.call(extra, k)) continue;
+        var v = extra[k];
+        // Only JSON-safe primitives / arrays of primitives in the url payload
+        if (v == null) continue;
+        if (k === "servers" && Array.isArray(v)) {
+          o.servers = v.map(function (s) {
+            if (s && typeof s === "object") return String(s.id != null ? s.id : s);
+            return String(s);
+          });
+          continue;
+        }
+        if (typeof v === "object") continue;
+        o[k] = v;
+      }
+    }
     return JSON.stringify(o);
   }
   function parseUrl(url) {
@@ -773,25 +793,21 @@
           var meta = metaMap[epNum] || {};
           var epName = meta.name || ep.title || ("Episode " + epNum);
           var payload = {
-            name: epName,
-            title: epName,
+            name: String(epName),
+            title: String(epName),
             url: itemUrl(slug, mid, "series", {
               ep: String(ep.id),
-              season: seasonNum,
-              servers: servers,
+              season: Number(seasonNum) || 1,
               title: title,
               year: yearNum != null ? yearNum : year
             }),
             season: Number(seasonNum) || 1,
             episode: Number(epNum) || 0,
-            description: meta.summary || "",
+            description: String(meta.summary || ""),
             posterUrl: meta.image || poster(slug),
             type: "episode"
           };
-          var rt = durationToMinutes(meta.runtime);
-          if (rt != null) payload.runtime = rt;
-          if (rt != null) payload.duration = rt;
-          if (meta.rating != null && isFinite(Number(meta.rating))) payload.rating = Number(meta.rating);
+          // Do not attach servers array inside url JSON if host expects Map-only primitives
           if (typeof Episode === "function") {
             return new Episode(payload);
           }
@@ -799,39 +815,31 @@
         });
       } else {
         episodes = [new MultimediaItem({
-          title: title,
-          url: itemUrl(slug, mid, "movie", { ep: "1", servers: servers, title: title, year: year }),
-          posterUrl: poster(slug), type: "movie"
+          title: String(title),
+          url: itemUrl(slug, mid, "movie", {
+            ep: "1",
+            title: title,
+            year: yearNum != null ? yearNum : year
+          }),
+          posterUrl: poster(slug),
+          type: "movie"
         })];
       }
-      // SkyStream expects List for cast/genres/directors — never pass a plain String there
-      function splitList(s) {
-        if (!s) return undefined;
-        if (Array.isArray(s)) return s.length ? s : undefined;
-        return String(s).split(/,/).map(function (x) { return x.trim(); }).filter(Boolean);
-      }
-      var castList = splitList(film.actors);
-      var directorList = splitList(film.directors);
-      var genreList = genres.length ? genres : splitList(film.genres);
-      var countryList = splitList(film.country);
-
+      // Only pass fields SkyStream is known to accept as scalars.
+      // Extra keys (cast/genres/directors as List/Map) caused Dart cast errors.
       var itemPayload = {
-        title: title,
-        url: url,
+        title: String(title || ""),
+        url: String(url || ""),
         posterUrl: poster(slug),
         bannerUrl: cover(slug),
         type: isSeries ? "series" : "movie",
-        description: description || "",
+        description: String(description || ""),
         episodes: episodes
       };
-      // Dart: year/duration are int?, rating is num? — never pass strings
       if (yearNum != null) itemPayload.year = yearNum;
       if (ratingNum != null) itemPayload.rating = ratingNum;
+      // duration as int minutes — omit if parser still unhappy
       if (durationMin != null) itemPayload.duration = durationMin;
-      if (genreList && genreList.length) itemPayload.genres = genreList;
-      if (castList && castList.length) itemPayload.cast = castList;
-      if (directorList && directorList.length) itemPayload.directors = directorList;
-      if (countryList && countryList.length) itemPayload.countries = countryList;
 
       cb({
         success: true,
